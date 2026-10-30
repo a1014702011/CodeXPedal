@@ -1,5 +1,7 @@
 ﻿# CodeXPedal
 
+> If macOS says the software cannot be opened, open “System Settings → Privacy & Security”, scroll down to CodeXPedal, and click “Open Anyway”.
+
 A lightweight Codex quota monitor with a native Windows taskbar/floating window and a native macOS menu bar/floating strip.
 
 Shows actual five-hour and seven-day windows returned by the official service, not assumptions based on plan names. No monthly quota. HH:mm:ss is the last valid observation time; ≈ denotes an old snapshot.
