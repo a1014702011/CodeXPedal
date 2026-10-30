@@ -43,7 +43,7 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             # [AI修改] 仅更新本自动化自己的未公开候选草稿；公开版本和既有tag绝不覆盖。
             test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
-            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .author.login)" = 'github-actions[bot]'
+            test "$(gh release view "$tag" --json author --jq .author.login)" = 'github-actions[bot]'
             if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
               test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)" = "$GITHUB_SHA"
             fi
