@@ -59,7 +59,8 @@ import CodeXPedalCore
         timer?.invalidate()
         let interval = preferences.refreshSeconds
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            // [AI修改] 每层并发闭包独立弱捕获，避免跨执行器共享可变weak绑定。
+            Task { @MainActor [weak self] in self?.refresh() }
         }
         timer?.tolerance = min(10, interval / 5)
         refresh()
@@ -76,7 +77,7 @@ import CodeXPedalCore
                 let cli = try CodexLocator.resolve(explicitPath: explicitPath)
                 result = .success((try reader.read(executable: cli), cli.lastPathComponent))
             } catch { result = .failure(error) }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.client = nil; self.isRefreshing = false
                 guard !self.stopped else { return }
