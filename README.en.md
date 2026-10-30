@@ -14,6 +14,10 @@ Shows actual five-hour and seven-day windows returned by the official service, n
 | macOS 13+ Apple Silicon | arm64 ZIP / DMG | See each release for signing/notarization status |
 | macOS 13+ Intel | x86_64 ZIP / DMG | See each release for signing/notarization status |
 
+### First launch on macOS
+
+If macOS says CodeXPedal cannot be opened, open “System Settings → Privacy & Security”, scroll down to CodeXPedal, click “Open Anyway”, and then restart the app.
+
 Live quotas require an installed, signed-in official Codex CLI and network access. A CLI bundled with the official desktop application can be reused. CodeXPedal does not bundle the CLI, sign users in, or read credentials. Set `CODEXPEDAL_CODEX_PATH` when discovery fails; macOS also offers a path setting. An API key alone does not imply ChatGPT subscription quotas.
 
 End users do not need Rust, Python, Node, .NET SDK, or Xcode. Windows local-history fallback is not live; missing data is shown as `--`. The Mac client does not scan conversation content. Neither client uploads account or usage data.

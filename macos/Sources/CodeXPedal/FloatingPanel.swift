@@ -11,6 +11,11 @@ private struct PanelMaterial: NSViewRepresentable {
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
+// [AI修改] 让横条内容视图明确允许窗口背景拖动，避免 SwiftUI 手势拦截后无法移动浮窗。
+private final class MovableHostingView<Content: View>: NSHostingView<Content> {
+    override var mouseDownCanMoveWindow: Bool { true }
+}
+
 @MainActor struct CompactStrip: View {
     @ObservedObject var store: QuotaStore
     @ObservedObject var preferences: Preferences
@@ -53,7 +58,7 @@ private struct PanelMaterial: NSViewRepresentable {
     private var movingProgrammatically = false
     init(store: QuotaStore, preferences: Preferences, openDetails: @escaping () -> Void) {
         self.preferences = preferences
-        host = NSHostingView(rootView: CompactStrip(store: store, preferences: preferences, openDetails: openDetails))
+        host = MovableHostingView(rootView: CompactStrip(store: store, preferences: preferences, openDetails: openDetails))
         panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         panel.title = "CodeXPedal"; panel.isFloatingPanel = true; panel.level = .floating

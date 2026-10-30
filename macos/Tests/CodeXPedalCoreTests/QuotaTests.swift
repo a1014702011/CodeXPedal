@@ -107,4 +107,16 @@ final class QuotaTests: XCTestCase {
         let path = try CodexLocator.resolve(explicitPath: "/usr/bin/true", environment: ["CODEXPEDAL_CODEX_PATH": "/nonexistent-codex"])
         XCTAssertEqual(path.lastPathComponent, "true")
     }
+
+    // [AI修改] 覆盖 ChatGPT.app 内嵌 CodexCLI.app 的自动发现路径，避免依赖用户手动设置。
+    func testFindExecutableRecursivelyDiscoversNestedCodexCLI() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let executable = root.appendingPathComponent("Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertEqual(try CodexLocator.findExecutable(in: [root]), executable)
+    }
 }

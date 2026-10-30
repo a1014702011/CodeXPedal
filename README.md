@@ -14,6 +14,10 @@
 | macOS 13+ Apple Silicon | arm64 ZIP / DMG | 原生应用，开发者公证状态见当次发布说明 |
 | macOS 13+ Intel | x86_64 ZIP / DMG | 原生应用，开发者公证状态见当次发布说明 |
 
+### macOS 首次打开
+
+如果 macOS 提示无法打开 CodeXPedal，请打开“系统设置 → 隐私与安全性”，向下找到 CodeXPedal，点击“仍要打开”，然后重新启动应用。
+
 实时额度需要已安装、已登录且联网的官方 Codex CLI。可复用官方桌面版附带的 CLI，或自行安装官方 CLI；本软件不内置 CLI、不代登录、不读取账户凭据。找不到时设置 `CODEXPEDAL_CODEX_PATH`；Mac 也可在设置中选择路径。仅有 API Key 不代表具有 ChatGPT 订阅额度。
 
 普通用户不需要安装 Rust、Python、Node、.NET SDK 或 Xcode。Windows 的本地历史兜底不是实时数据，缺失时显示 `--`。Mac 不扫描会话正文。两端不上传账户与用量。
