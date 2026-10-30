@@ -34,12 +34,21 @@ jobs:
           cd ..
           version="$(tr -d '\r\n' < VERSION)"
           tag="v$version"
+          current="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          test "$current" = "$GITHUB_SHA" || { echo 'main已有新提交，不创建过时草稿。' >&2; exit 1; }
           if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$tag" ]]; then
             echo 'tag与VERSION不一致，拒绝发布。' >&2
             exit 1
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo '同名Release已存在，拒绝覆盖。' >&2
-            exit 1
+            # [AI修改] 仅更新本自动化自己的未公开候选草稿；公开版本和既有tag绝不覆盖。
+            test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = true
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .author.login)" = 'github-actions[bot]'
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+              test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)" = "$GITHUB_SHA"
+            fi
+            gh release edit "$tag" --target "$GITHUB_SHA" --notes-file docs/RELEASE_NOTES.md
+            gh release upload "$tag" artifacts/* --clobber
+          else
+            gh release create "$tag" artifacts/* --target "$GITHUB_SHA" --draft --prerelease --title "CodeXPedal $tag" --notes-file docs/RELEASE_NOTES.md
           fi
-          gh release create "$tag" artifacts/* --target "$GITHUB_SHA" --draft --prerelease --title "CodeXPedal $tag" --notes-file docs/RELEASE_NOTES.md

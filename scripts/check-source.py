@@ -63,7 +63,7 @@ for file in (ROOT/'macos/scripts').glob('*.sh'):
 swift_tests = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT/'macos/Tests').rglob('*.swift'))
 test_count = len(re.findall(r'func test\w+\s*\(', swift_tests))
 require(test_count >= 27, 'Swift回归声明不完整')
-require('--draft --prerelease' in read('.github/workflows/release.yml'), '发布没有草稿门禁')
+require('--draft --prerelease' in read('.github/workflows/release.yml') and '.isDraft' in read('.github/workflows/release.yml'), '发布没有草稿门禁')
 require(not (ROOT/'Resources/Palettes').exists() and not (ROOT/'Resources/LeadershipBadges').exists(), '废弃资源未移除')
 report = '# 全生产目录静态风险清单\n\n' + ('失败\n' if failures else '静态边界检查通过\n')
 report += '\n这是文件契约检查，不等同完整安全审计、编译、内存、能耗或GUI验收。以下所有生产文件均列入清单，相关生命周期需结合测试和真机复核。\n\n| 文件 | 复核类别 |\n|---|---|\n' + '\n'.join(inventory) + '\n'

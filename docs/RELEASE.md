@@ -7,7 +7,7 @@
 1. main/PR/手动CI：Rust测试/格式/lint/全源码边界，Windows真实绑定测试，Mac arm64/Intel XCTest、原生构建和包校验。
 2. 全部任务通过，上传三个平台的候选软件包和独立测试报告。包中包含必要许可证，不含账户、会话、个人路径或日志。
 3. 发布workflow手动触发或推送匹配VERSION的tag；复用同一提交的完整CI，再校验3个ZIP、2个DMG和所有SHA-256。任一失败即停止。
-4. 创建draft+prerelease，不自动公开；同名Release存在时拒绝覆盖。无强制推送/覆盖tag。
+4. 创建draft+prerelease，不自动公开；只允许更新本GitHub Actions创建的同名未公开候选草稿，公开Release和已存在的不同SHA tag拒绝覆盖。main已前进时拒绝生成过时草稿；无强制推送。
 5. Mac mini及Windows真机验收、真实额度对照、稳定性、签名状态完成并记录后，才可由已授权发布流程公开预发布。未完成项不能隐去。
 6. 正式稳定版需再次确认，不能仅因CI绿色而宣称Win10/11、macOS13、双架构均现场通过。
 
