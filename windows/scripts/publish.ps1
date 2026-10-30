@@ -33,12 +33,15 @@ $runtimeRoot = Join-Path $packageRoot 'runtime'
 $zipPath = Join-Path $OutputRoot 'CodeXPedal-windows-x64-portable.zip'
 
 $coreRuntime = Get-ChildItem -LiteralPath (Join-Path $DotnetRoot 'shared\Microsoft.NETCore.App') -Directory |
+    Where-Object { $_.Name -match '^10\.\d+\.\d+$' } |
     Sort-Object { [version]$_.Name } -Descending |
     Select-Object -First 1
 $desktopRuntime = Get-ChildItem -LiteralPath (Join-Path $DotnetRoot 'shared\Microsoft.WindowsDesktop.App') -Directory |
+    Where-Object { $_.Name -match '^10\.\d+\.\d+$' } |
     Sort-Object { [version]$_.Name } -Descending |
     Select-Object -First 1
 $hostFxr = Get-ChildItem -LiteralPath (Join-Path $DotnetRoot 'host\fxr') -Directory |
+    Where-Object { $_.Name -match '^10\.\d+\.\d+$' } |
     Sort-Object { [version]$_.Name } -Descending |
     Select-Object -First 1
 

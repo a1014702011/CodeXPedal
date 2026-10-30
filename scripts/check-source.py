@@ -58,6 +58,8 @@ plist = plistlib.loads((ROOT / 'Resources/Info.plist').read_bytes())
 require(plist.get('LSUIElement') is True and plist.get('CFBundleIdentifier') == 'com.codexpedal.app', 'Mac应用身份不一致')
 require(plist.get('LSMinimumSystemVersion') == '13.0', 'Mac最低版本不一致')
 require(plist.get('CFBundleShortVersionString') == read('VERSION').strip(), '版本元数据不一致')
+for file in (ROOT/'macos/scripts').glob('*.sh'):
+    require(not re.search(r'\$[A-Z_]+[^\x00-\x7f]', file.read_text(encoding='utf-8')), '中文相邻shell变量未加花括号：' + file.name)
 swift_tests = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT/'macos/Tests').rglob('*.swift'))
 test_count = len(re.findall(r'func test\w+\s*\(', swift_tests))
 require(test_count >= 27, 'Swift回归声明不完整')

@@ -22,7 +22,7 @@ cargo test --manifest-path shared/Cargo.toml --locked
 
 ## Mac
 
-`make test` 先构建本架构共享静态库，再运行Swift XCTest并开启覆盖率，日志在 `build/macos-tests.log`。测试直接调用生产绑定，包括真实子进程的部分响应、EOF、输出上限、超时、取消和ID隔离。临时夹具使用显式隔离目录，不放系统/tmp。
+`make test` 先构建本架构共享静态库，再运行Swift XCTest并开启覆盖率，日志在 `build/macos-tests.log`，实际用例结果在 `build/macos-tests.xml`。测试直接调用生产绑定，包括真实子进程的部分响应、EOF、输出上限、超时、取消和ID隔离。临时夹具使用显式隔离目录，不放系统/tmp。
 
 `make package` 执行源码边界、XCTest、构建、资源/签名和包校验。CI使用arm64与Intel各自的原生runner。目标声明不等于macOS 13已真机通过，ad-hoc签名不等于Apple公证。
 

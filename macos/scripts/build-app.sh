@@ -40,4 +40,4 @@ else
 fi
 codesign --verify --deep --strict "$APP_DIR"
 file "$APP_DIR/Contents/MacOS/CodeXPedal"
-echo "已构建：$APP_DIR（仅本地构建，不代表已完成真机验收或公证）"
+echo "已构建：${APP_DIR}（仅本地构建，不代表已完成真机验收或公证）"

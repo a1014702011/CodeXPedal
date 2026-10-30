@@ -76,4 +76,5 @@ jobs:
           path: |
             build/*.log
             build/*.json
+            build/*.xml
             build/memory-risk/report.md

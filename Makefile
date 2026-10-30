@@ -21,7 +21,7 @@ core:
 
 test: core
 	@mkdir -p build
-	@set -o pipefail; swift test --package-path macos --parallel --enable-code-coverage 2>&1 | tee build/macos-tests.log
+	@set -o pipefail; swift test --package-path macos --parallel --enable-code-coverage --xunit-output "$(CURDIR)/build/macos-tests.xml" 2>&1 | tee build/macos-tests.log
 
 run: build
 	open "$(APP_DIR)"
