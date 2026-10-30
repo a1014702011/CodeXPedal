@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- [AI修改] 核心层只依赖 Windows 自带 winsqlite3.dll，避免额外数据库运行时。 -->
+  <PropertyGroup>
+    <!-- [AI修改] 不使用 WinRT API，采用通用 Windows TFM，避免普通构建下载额外 Windows SDK 包。 -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>CodeXPedal.Windows.Core</RootNamespace>
+    <AssemblyName>CodeXPedal.Windows.Core</AssemblyName>
+  </PropertyGroup>
+  <!-- [AI修改] 宿主携带同一Rust核心，缺失时构建失败，禁止回退重复实现。 -->
+  <ItemGroup>
+    <None Include="..\..\..\shared\native\windows-x64\codexpedal_core.dll" Link="codexpedal_core.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

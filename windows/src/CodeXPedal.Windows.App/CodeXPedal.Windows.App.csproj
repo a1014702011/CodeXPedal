@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- [AI修改] 使用 WPF 绘制悬浮窗，并用 WinForms NotifyIcon 提供稳定托盘入口。 -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- [AI修改] 普通构建使用 SDK 自带桌面框架；发布时再通过脚本生成 win-x64 自包含包。 -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>CodeXPedal.Windows.App</RootNamespace>
+    <AssemblyName>CodeXPedal</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Resources\CodeXPedal.ico</ApplicationIcon>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CodeXPedal.Windows.Core\CodeXPedal.Windows.Core.csproj" />
+    <Resource Include="Resources\CodeXPedal.ico" />
+    <!-- [AI修改] 完整悬浮窗使用与安装包一致的新品牌图标。 -->
+    <Resource Include="Resources\CodeXPedal-icon.png" />
+  </ItemGroup>
+</Project>

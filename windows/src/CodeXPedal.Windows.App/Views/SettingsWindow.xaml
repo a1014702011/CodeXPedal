@@ -1,0 +1,51 @@
+<!-- [AI修改] 为仅任务栏模式增加说明空间，保持设置项无需滚动即可完整显示。 -->
+<Window x:Class="CodeXPedal.Windows.App.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CodeXPedal 设置"
+        Width="430"
+        Height="490"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#141B23">
+    <!-- [AI修改] 提供悬浮窗、任务栏和启动行为的用户配置入口。 -->
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="显示设置" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Margin="0,5,0,0" Text="设置只保存在当前 Windows 用户目录。" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,24,0,0">
+            <CheckBox x:Name="CompactModeCheckBox" Content="启动后使用紧凑悬浮窗" Margin="0,0,0,16" />
+            <CheckBox x:Name="AlwaysOnTopCheckBox" Content="悬浮窗总在最前" Margin="0,0,0,16" />
+            <!-- [AI修改] 任务栏栏位与最新版额度结构一致，只保留 7 天和更新时间。 -->
+            <CheckBox x:Name="TaskbarStripCheckBox" Content="在任务栏显示 7 天额度和更新时间" Margin="0,0,0,6" Unchecked="TaskbarStripCheckBox_Unchecked" />
+            <TextBlock Margin="22,0,0,16" Text="任务栏栏位默认关闭；资源管理器重启后会自动恢复。" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" />
+            <!-- [AI修改] 仅任务栏模式仍允许从任务栏栏位或通知区域临时打开悬浮窗。 -->
+            <CheckBox x:Name="TaskbarOnlyModeCheckBox" Content="仅显示任务栏（启动时不显示悬浮窗）" Margin="0,0,0,6" Checked="TaskbarOnlyModeCheckBox_Checked" />
+            <TextBlock Margin="22,0,0,16" Text="启用后会自动开启任务栏栏位；单击栏位仍可临时打开悬浮窗。" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" />
+            <CheckBox x:Name="StartWithWindowsCheckBox" Content="登录 Windows 后自动启动" Margin="0,0,0,18" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="自动刷新间隔" VerticalAlignment="Center" />
+                <TextBox x:Name="RefreshIntervalTextBox" Grid.Column="1" Padding="7,4" />
+                <TextBlock Grid.Column="2" Text="秒（15–3600）" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SecondaryTextBrush}" />
+            </Grid>
+            <TextBlock x:Name="ValidationText" Margin="150,6,0,0" Foreground="#FFFF8B8B" FontSize="11" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="取消" Click="CancelButton_Click" Margin="0,0,8,0" MinWidth="76" />
+            <Button Content="保存" Click="SaveButton_Click" MinWidth="76" Background="#315C8B" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,20 @@
+<Project>
+  <!-- [AI修改] Windows 客户端统一启用严格编译、可空检查和可重复构建。 -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- [AI修改] LibraryImport 源生成器需要启用不安全块；业务代码不直接使用裸指针。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Deterministic>true</Deterministic>
+    <!-- [AI修改] 新项目独立版本，不继承参考项目版本号。 -->
+    <Version>0.1.0-beta01</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <Platforms>x64</Platforms>
+    <!-- [AI修改] 统一生成 64 位进程，匹配 Windows 10/11 x64 和 winsqlite3。 -->
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+</Project>

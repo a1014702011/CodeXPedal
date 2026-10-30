@@ -1,0 +1,41 @@
+.DS_Store
+*.swp
+*.swo
+*.log
+
+# Build products
+/build/
+/dist/
+# [AI修改] 共享核心构建输出不进入源码仓库。
+/shared/target/
+/shared/native/
+*.dSYM/
+
+# Xcode and SwiftPM local state
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Generated project-local skill links
+/.codex/skills
+/.cursor/skills
+/.claude/skills
+
+# macOS packaging leftovers
+*.dmg
+*.pkg
+*.zip
+
+# dev context
+requirements/
+explore/
+
+# [AI修改] 本机实施清单含绝对路径与验收上下文，保留本地但不上传公开仓库。
+/docs/IMPLEMENTATION_CODEXPEDAL_REBRAND_AND_QUOTAS.md

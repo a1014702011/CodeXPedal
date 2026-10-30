@@ -1,0 +1,3 @@
+# [AI修改] Windows 客户端源码、工程和脚本统一使用 CRLF。
+* text=auto eol=crlf
+*.ico binary

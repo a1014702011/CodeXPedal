@@ -1,0 +1,45 @@
+# [AI修改] 仅在同一提交的所有原生测试和打包通过后创建草稿，绝不自动公开未验收软件。
+name: Release candidates
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    uses: ./.github/workflows/ci.yml
+  draft:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: package-*
+          merge-multiple: true
+      - name: Verify checksums and prepare draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for sums in *.sha256; do sha256sum -c "$sums"; done
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 3
+          test "$(find . -maxdepth 1 -name '*.dmg' | wc -l)" -eq 2
+          cd ..
+          version="$(tr -d '\r\n' < VERSION)"
+          tag="v$version"
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo 'tag与VERSION不一致，拒绝发布。' >&2
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo '同名Release已存在，拒绝覆盖。' >&2
+            exit 1
+          fi
+          gh release create "$tag" artifacts/* --target "$GITHUB_SHA" --draft --prerelease --title "CodeXPedal $tag" --notes-file docs/RELEASE_NOTES.md

@@ -1,0 +1,7 @@
+# [AI修改] 全工程文本统一CRLF；二进制资源保持原字节。
+* text=auto eol=crlf
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.icns binary

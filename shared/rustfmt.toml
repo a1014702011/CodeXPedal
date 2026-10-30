@@ -1,0 +1,2 @@
+# [AI修改] 与工程CRLF规范一致，避免格式化后混用行尾。
+newline_style = "Windows"

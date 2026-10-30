@@ -1,0 +1,79 @@
+# [AI修改] 两端测试真正链接同一Rust核心；失败阻断所有Release候选包。
+name: CI
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            platform: windows-x64
+          - os: macos-14
+            platform: macos-arm64
+          - os: macos-15-intel
+            platform: macos-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component clippy --component rustfmt
+          rustup default 1.97.1
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '10.0.x'
+      - name: Shared core tests and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          cargo fmt --manifest-path shared/Cargo.toml --check
+          cargo clippy --manifest-path shared/Cargo.toml --locked --all-targets -- -D warnings
+          cargo test --manifest-path shared/Cargo.toml --locked 2>&1 | tee build/shared-tests.log
+          python3 scripts/check-source.py --report build/memory-risk/report.md
+      - name: Windows native integration and portable package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CODEXPEDAL_TEST_TEMP_ROOT: ${{ runner.temp }}\CodeXPedal-tests
+          CODEXPEDAL_TEST_REPORT: ${{ github.workspace }}\build\windows-tests.json
+        run: |
+          .\windows\scripts\publish.ps1 -OutputRoot "$env:GITHUB_WORKSPACE\dist"
+          $version = (Get-Content VERSION -Raw).Trim()
+          $name = "CodeXPedal-$version-windows-x64-portable.zip"
+          Move-Item -LiteralPath dist\CodeXPedal-windows-x64-portable.zip -Destination "dist\$name"
+          $hash = (Get-FileHash -LiteralPath "dist\$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$env:GITHUB_WORKSPACE\dist\$name.sha256", "$hash  $name`n", [Text.UTF8Encoding]::new($false))
+      - name: Mac native tests and package
+        if: runner.os == 'macOS'
+        env:
+          CODEXPEDAL_TEST_TEMP_ROOT: ${{ github.workspace }}/build/test-fixtures
+        run: make package
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: package-${{ matrix.platform }}
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/*.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.platform }}
+          path: |
+            build/*.log
+            build/*.json
+            build/memory-risk/report.md

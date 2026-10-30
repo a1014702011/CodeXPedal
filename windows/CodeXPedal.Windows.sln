@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeXPedal.Windows.Core", "src\CodeXPedal.Windows.Core\CodeXPedal.Windows.Core.csproj", "{E88E1FBC-73EA-4A52-849E-4927B8509E20}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeXPedal.Windows.App", "src\CodeXPedal.Windows.App\CodeXPedal.Windows.App.csproj", "{1FFDB4D0-7E1F-48C7-8F75-A69A3E69B415}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CodeXPedal.Windows.Tests", "tests\CodeXPedal.Windows.Tests\CodeXPedal.Windows.Tests.csproj", "{56A10BE7-0F65-41B0-96C4-81D5C238A604}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E88E1FBC-73EA-4A52-849E-4927B8509E20}.Debug|x64.ActiveCfg = Debug|x64
+		{E88E1FBC-73EA-4A52-849E-4927B8509E20}.Debug|x64.Build.0 = Debug|x64
+		{E88E1FBC-73EA-4A52-849E-4927B8509E20}.Release|x64.ActiveCfg = Release|x64
+		{E88E1FBC-73EA-4A52-849E-4927B8509E20}.Release|x64.Build.0 = Release|x64
+		{1FFDB4D0-7E1F-48C7-8F75-A69A3E69B415}.Debug|x64.ActiveCfg = Debug|x64
+		{1FFDB4D0-7E1F-48C7-8F75-A69A3E69B415}.Debug|x64.Build.0 = Debug|x64
+		{1FFDB4D0-7E1F-48C7-8F75-A69A3E69B415}.Release|x64.ActiveCfg = Release|x64
+		{1FFDB4D0-7E1F-48C7-8F75-A69A3E69B415}.Release|x64.Build.0 = Release|x64
+		{56A10BE7-0F65-41B0-96C4-81D5C238A604}.Debug|x64.ActiveCfg = Debug|x64
+		{56A10BE7-0F65-41B0-96C4-81D5C238A604}.Debug|x64.Build.0 = Debug|x64
+		{56A10BE7-0F65-41B0-96C4-81D5C238A604}.Release|x64.ActiveCfg = Release|x64
+		{56A10BE7-0F65-41B0-96C4-81D5C238A604}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+EndGlobal

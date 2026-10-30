@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- [AI修改] 使用无第三方依赖的控制台自测，确保离线环境也能执行。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- [AI修改] 测试与核心层使用同一通用 Windows TFM，保持离线可构建。 -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>CodeXPedal.Windows.Tests</RootNamespace>
+    <AssemblyName>CodeXPedal.Windows.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CodeXPedal.Windows.Core\CodeXPedal.Windows.Core.csproj" />
+  </ItemGroup>
+</Project>
