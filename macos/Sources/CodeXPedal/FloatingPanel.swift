@@ -100,7 +100,8 @@ private final class DraggablePanel: NSPanel {
     }
     // [AI修改] 拖动时限制浮窗保留在当前屏幕可见区域，并统一保存用户最终位置。
     private func movePanel(to origin: NSPoint) {
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(origin) }) ?? NSScreen.main?.visibleFrame ?? .zero
+        // [AI修改] 统一取屏幕可见区域，修复 NSScreen 与 NSRect 类型不一致导致的编译失败。
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(origin) })?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         let maxX = max(screen.minX, screen.maxX - panel.frame.width)
         let maxY = max(screen.minY, screen.maxY - panel.frame.height)
         let bounded = NSPoint(x: min(max(origin.x, screen.minX), maxX), y: min(max(origin.y, screen.minY), maxY))
