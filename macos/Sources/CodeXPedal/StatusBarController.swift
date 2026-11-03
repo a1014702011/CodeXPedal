@@ -8,6 +8,10 @@ import CodeXPedalCore
     private let store: QuotaStore
     private let preferences: Preferences
     private let windows: AuxiliaryWindows
+    // [AI修改] 系统菜单文字左缩进实测29pt，标签自带2pt内边距，所以视图内取27pt。
+    private static let textRowInset: CGFloat = 27
+    private static let textRowHeight: CGFloat = 24
+    private static let textRowTrailing: CGFloat = 14
     init(store: QuotaStore, preferences: Preferences, windows: AuxiliaryWindows) {
         self.store = store; self.preferences = preferences; self.windows = windows
         super.init(); menu.delegate = self; menu.autoenablesItems = false; item.menu = menu; update()
@@ -56,14 +60,18 @@ import CodeXPedalCore
         menu.addItem(.separator())
         addAction("退出 CodeXPedal", #selector(quit), "q")
     }
-    // [AI修改] 说明行仍禁用以保持不可点击、无悬停高亮；用属性标题指定文字色，避免系统灰字，颜色随深浅色模式变化。
+    // [AI修改] 真机验证：禁用项即使用属性标题指定颜色，系统仍画成灰色，所以说明行改用自定义视图。
+    // 视图行不响应点击、无悬停高亮，文字色随深浅色模式变化；行高和左缩进按系统菜单项实测值对齐。
     private func addText(_ text: String, bold: Bool = false) {
-        let size = NSFont.menuFont(ofSize: 0).pointSize
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize, weight: bold ? .semibold : .regular)
+        label.textColor = .labelColor
+        label.sizeToFit()
+        label.setFrameOrigin(NSPoint(x: Self.textRowInset, y: ((Self.textRowHeight - label.frame.height) / 2).rounded()))
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: label.frame.maxX + Self.textRowTrailing, height: Self.textRowHeight))
+        row.addSubview(label)
         let item = NSMenuItem(title: text, action: nil, keyEquivalent: "")
-        item.attributedTitle = NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: size, weight: bold ? .semibold : .regular),
-            .foregroundColor: NSColor.labelColor
-        ])
+        item.view = row
         item.isEnabled = false
         menu.addItem(item)
     }
