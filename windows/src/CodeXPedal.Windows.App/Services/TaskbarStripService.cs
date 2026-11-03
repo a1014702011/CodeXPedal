@@ -206,6 +206,7 @@ public sealed partial class TaskbarStripService : IDisposable
         }
 
         NativeMethods.SetWindowPos(handle, IntPtr.Zero, x, y, width, height, SwpNoActivate | SwpShowWindow);
+        FillHost(width, height);
 #if DEBUG
         WriteTaskbarVerification("reserved", handle);
 #endif
@@ -568,6 +569,20 @@ public sealed partial class TaskbarStripService : IDisposable
         _claudeRow.SetTypography(fontSize, separatorHeight);
     }
 
+    // [AI修改] 每次定位后按窗口实际物理尺寸换算为本窗口的逻辑尺寸，强制底块撑满窗口，内容始终垂直居中。
+    private void FillHost(int width, int height)
+    {
+        if (_rootVisual is null || _source?.CompositionTarget is not { } target)
+        {
+            return;
+        }
+
+        var logical = target.TransformFromDevice.Transform(new System.Windows.Vector(width, height));
+        var size = new System.Windows.Size(Math.Max(0D, logical.X), Math.Max(0D, logical.Y));
+        _rootVisual.Measure(size);
+        _rootVisual.Arrange(new System.Windows.Rect(size));
+    }
+
     private void UpdateHorizontalWidth(IntPtr taskbar)
     {
         if (_rootVisual is null)
@@ -575,11 +590,18 @@ public sealed partial class TaskbarStripService : IDisposable
             return;
         }
 
-        _rootVisual.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        // [AI修改] 只测量内部文字面板，不能对底块本身做无限大测量：那样会让底块按内容尺寸排版、不再撑满窗口，
+        // 导致下方空出一块，并在下次窗口尺寸变化时跳回居中（表现为刷新时上下浮动）。面板宽度 + 左右边框（由下方 +2 计入）即所需宽度。
+        if (_rootVisual.Child is not UIElement content)
+        {
+            return;
+        }
+
+        content.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
         var dpi = NativeMethods.GetDpiForWindow(taskbar);
         var dpiScale = dpi > 0 ? dpi / 96D : 1D;
         // [AI修改] 以放大后的实际文字宽度紧贴内容，不再保留 132 像素固定下限。
-        _horizontalWidth = TaskbarStripLayout.CalculatePhysicalWidth(_rootVisual.DesiredSize.Width, dpiScale,
+        _horizontalWidth = TaskbarStripLayout.CalculatePhysicalWidth(content.DesiredSize.Width, dpiScale,
             _dualLayout ? TaskbarStripLayout.MaximumDualPhysicalWidth : TaskbarStripLayout.MaximumPhysicalWidth);
     }
 
