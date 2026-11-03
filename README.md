@@ -10,7 +10,7 @@
 
 ## 下载与运行
 
-[查看 Releases](https://github.com/a1014702011/CodeXPedal/releases)。首版仍处验证阶段：自动流水线生成候选包和草稿 Release，草稿不是公开下载；不要把源码 ZIP 当成软件安装包。
+[查看 Releases](https://github.com/a1014702011/CodeXPedal/releases)。当前为 beta 预发布，不是稳定版，各平台的验证情况见当次发布说明。请下载下表的软件包，不要把源码 ZIP 当成安装包。
 
 | 平台 | 软件包 | 使用前提 |
 |---|---|---|
@@ -22,11 +22,11 @@
 
 如果 macOS 提示无法打开 CodeXPedal，请打开“系统设置 → 隐私与安全性”，向下找到 CodeXPedal，点击“仍要打开”，然后重新启动应用。
 
-实时额度需要已安装、已登录且联网的官方 Codex CLI。可复用官方桌面版附带的 CLI，或自行安装官方 CLI；本软件不内置 CLI、不代登录、不读取账户凭据。找不到时设置 `CODEXPEDAL_CODEX_PATH`；Mac 也可在设置中选择路径。仅有 API Key 不代表具有 ChatGPT 订阅额度。
+实时额度需要已安装、已登录且联网的官方 Codex CLI。可复用官方桌面版附带的 CLI，或自行安装官方 CLI；本软件不内置 CLI、不代登录、不读取 Codex 账户凭据。找不到时设置 `CODEXPEDAL_CODEX_PATH`；Mac 也可在设置中选择路径。仅有 API Key 不代表具有 ChatGPT 订阅额度。
 
 ### Claude 额度
 
-Claude 额度需要本机安装并登录 **Claude Code（命令行版）**；只装 Claude 桌面版读不到。CodeXPedal 启动时如果发现你在用 Claude 但没装或没登录 Claude Code，会询问一次：点击“安装并登录”后打开可见的终端窗口，执行官方安装脚本（Windows：`irm https://claude.ai/install.ps1 | iex`；macOS：`curl -fsSL https://claude.ai/install.sh | bash`）和 `claude auth login`，你只需在浏览器里点击“授权”；登录成功后自动开启实时读取并显示额度。也可以在设置中随时点击“安装并登录 Claude Code”，或选择“不再提示”。本软件不会代填账号或读取密码。
+Claude 额度需要 Pro/Max 订阅，并在本机安装、登录 **Claude Code（命令行版）**；只装 Claude 桌面版读不到。CodeXPedal 启动时如果发现你在用 Claude 但没装或没登录 Claude Code，会询问一次：点击“安装并登录”后打开可见的终端窗口，执行官方安装脚本（Windows：`irm https://claude.ai/install.ps1 | iex`；macOS：`curl -fsSL https://claude.ai/install.sh | bash`）和 `claude auth login`，你只需在浏览器里点击“授权”；登录成功后即可显示额度。也可以在设置中随时点击“安装并登录 Claude Code”，或选择“不再提示”。本软件不会代填账号或读取密码。如果 `~/.claude/settings.json` 的 `env` 把 Claude Code 指向中转或第三方接口（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 等），且本机没有订阅登录信息，就读不到 Claude 订阅额度。
 
 Claude 没有像 Codex app-server 那样的官方额度命令，CodeXPedal 提供两种来源，实时读取失败时自动使用桥接数据：
 
@@ -72,7 +72,7 @@ make run
 
 ## 验证边界
 
-CI 编译/测试、真实系统交互、真实账户额度、签名公证是不同验收项。未执行项不能标为通过；Mac mini 连接未恢复前，不能声称已完成该机器的真机验收。
+CI 编译/测试、真实系统交互、真实账户额度、签名公证是不同验收项。未执行项不能标为通过，每个版本的真机验证情况以当次发布说明为准。
 
 ## 许可
 

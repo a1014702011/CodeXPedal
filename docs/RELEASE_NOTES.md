@@ -1,4 +1,4 @@
-CodeXPedal 0.2.0-beta01 候选版本：新增 Claude 剩余额度，Windows 与 macOS 共用同一 Rust 额度核心。
+CodeXPedal 0.2.0-beta01 预发布版本：新增 Claude 剩余额度，Windows 与 macOS 共用同一 Rust 额度核心。
 
 ## 主要更新
 
@@ -15,4 +15,11 @@ CodeXPedal 0.2.0-beta01 候选版本：新增 Claude 剩余额度，Windows 与 
 - Claude 额度需要 Pro/Max 订阅和 Claude Code 登录；状态栏桥接只在终端版 Claude Code 发出请求后更新，空闲约3分钟后数字带 ≈。
 - macOS 首次打开若提示无法打开，请到“系统设置 → 隐私与安全性”点击“仍要打开”。
 
-本Release为草稿候选；真机交互和真实账户验证尚待独立验收，不代表稳定版。未配置Apple证书/公证时仅ad-hoc签名。
+## 验证情况
+
+本版本是公开预发布，不是稳定版。
+
+- CI：Windows x64、macOS arm64 与 Intel 的构建和自动测试全部通过。
+- Mac mini（Apple 芯片）：曾用真实账户看到 Codex 与 Claude 额度；本版的设置页、下拉菜单对齐和悬浮窗修复尚未完成真机确认。
+- Windows、macOS 13、Intel Mac：本版未做真机验收。
+- 签名：未配置 Apple 证书和公证，仅 ad-hoc 签名。

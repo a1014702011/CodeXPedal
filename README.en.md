@@ -10,7 +10,7 @@ Shows actual five-hour and seven-day windows returned by the official service, n
 
 ## Download and requirements
 
-[Releases](https://github.com/a1014702011/CodeXPedal/releases). The first release is under validation. Automation produces candidate packages and a draft Release; drafts are not public downloads. GitHub source ZIPs are not application packages.
+[Releases](https://github.com/a1014702011/CodeXPedal/releases). Current builds are beta prereleases, not stable releases; see each release for what was verified. Download the packages below, not GitHub source ZIPs.
 
 | Platform | Package | Requirements |
 |---|---|---|
@@ -22,11 +22,11 @@ Shows actual five-hour and seven-day windows returned by the official service, n
 
 If macOS says CodeXPedal cannot be opened, open “System Settings → Privacy & Security”, scroll down to CodeXPedal, click “Open Anyway”, and then restart the app.
 
-Live quotas require an installed, signed-in official Codex CLI and network access. A CLI bundled with the official desktop application can be reused. CodeXPedal does not bundle the CLI, sign users in, or read credentials. Set `CODEXPEDAL_CODEX_PATH` when discovery fails; macOS also offers a path setting. An API key alone does not imply ChatGPT subscription quotas.
+Live quotas require an installed, signed-in official Codex CLI and network access. A CLI bundled with the official desktop application can be reused. CodeXPedal does not bundle the CLI, sign users in, or read Codex credentials. Set `CODEXPEDAL_CODEX_PATH` when discovery fails; macOS also offers a path setting. An API key alone does not imply ChatGPT subscription quotas.
 
 ### Claude quotas
 
-Claude quotas require **Claude Code (the CLI)** to be installed and signed in; the Claude desktop app alone is not enough. If CodeXPedal sees that you use Claude but Claude Code is missing or signed out, it asks once at startup. “Install and sign in” opens a visible terminal that runs the official installer (Windows: `irm https://claude.ai/install.ps1 | iex`; macOS: `curl -fsSL https://claude.ai/install.sh | bash`) and `claude auth login`; you only click “Authorize” in the browser. After sign-in, live reading turns on automatically. The same action is available in Settings, and “Don't ask again” suppresses the prompt. CodeXPedal never enters credentials or reads passwords.
+Claude quotas require a Pro/Max subscription and **Claude Code (the CLI)** installed and signed in; the Claude desktop app alone is not enough. If CodeXPedal sees that you use Claude but Claude Code is missing or signed out, it asks once at startup. “Install and sign in” opens a visible terminal that runs the official installer (Windows: `irm https://claude.ai/install.ps1 | iex`; macOS: `curl -fsSL https://claude.ai/install.sh | bash`) and `claude auth login`; you only click “Authorize” in the browser. The quota appears after sign-in. The same action is available in Settings, and “Don't ask again” suppresses the prompt. CodeXPedal never enters credentials or reads passwords. If the `env` block in `~/.claude/settings.json` points Claude Code at a relay or third-party endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and so on) and the machine has no subscription sign-in, Claude subscription quotas cannot be read.
 
 Claude has no official quota command comparable to the Codex app-server, so CodeXPedal offers two sources. Bridge data is used automatically when live reading fails:
 
@@ -70,6 +70,6 @@ make run
 
 ## Validation and license
 
-CI builds/tests, native UI verification, live-account comparison, and signing/notarization are separate gates. Unexecuted checks remain NOT_RUN. An unavailable Mac mini is not a passed device test.
+CI builds/tests, native UI verification, live-account comparison, and signing/notarization are separate gates. Unexecuted checks remain NOT_RUN. See each release for device test status.
 
 MIT. Required notices are retained in [attribution](docs/BRANDING.md) and [LICENSE](LICENSE). This is not an official OpenAI or Anthropic product.
