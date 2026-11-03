@@ -57,6 +57,17 @@
             <Setter Property="Background" Value="#FF1B2530" />
             <Setter Property="BorderBrush" Value="#FF506276" />
             <Setter Property="Foreground" Value="{StaticResource PrimaryTextBrush}" />
+            <!-- [AI修改] 系统模板左侧图标栏是写死的浅色，会留下白色竖条；改用只有深色边框和菜单项的简洁模板。 -->
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" Padding="2" SnapsToDevicePixels="True">
+                            <ItemsPresenter Grid.IsSharedSizeScope="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style TargetType="ToolTip">
             <Setter Property="Background" Value="#FF1B2530" />
