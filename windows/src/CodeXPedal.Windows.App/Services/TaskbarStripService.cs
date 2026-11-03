@@ -23,6 +23,8 @@ public sealed partial class TaskbarStripService : IDisposable
     private const uint SwpShowWindow = 0x0040;
     // [AI修改] 任务按钮区域过小时宁可隐藏信息栏，也不给系统交互制造拥挤。
     private const int MinimumTaskListLength = 240;
+    // [AI修改] 底块与窗口清屏共用同一颜色，保证未被内容覆盖的像素也不是黑色。
+    private static readonly MediaColor StripBackgroundColor = MediaColor.FromRgb(20, 27, 35);
     private readonly Action _showFloatingWindow;
     private readonly DispatcherTimer _reconnectTimer;
     private readonly string _reservationRecoveryPath;
@@ -141,6 +143,12 @@ public sealed partial class TaskbarStripService : IDisposable
             UsesPerPixelOpacity = false,
         };
         _source = new HwndSource(parameters) { RootVisual = _rootVisual };
+        // [AI修改] HwndSource 默认用黑色清屏；DPI 换算或尺寸变化时内容与窗口差一两个像素就会露出黑边，清屏色改为与底块同色。
+        if (_source.CompositionTarget is not null)
+        {
+            _source.CompositionTarget.BackgroundColor = StripBackgroundColor;
+        }
+
         PositionHost(_source.Handle);
     }
 
@@ -162,7 +170,10 @@ public sealed partial class TaskbarStripService : IDisposable
 
         var border = new Border
         {
-            Background = new SolidColorBrush(MediaColor.FromRgb(20, 27, 35)),
+            Background = new SolidColorBrush(StripBackgroundColor),
+            // [AI修改] 按设备像素对齐，避免缩放比例不是 100% 时边缘出现半透明暗线。
+            UseLayoutRounding = true,
+            SnapsToDevicePixels = true,
             BorderBrush = new SolidColorBrush(MediaColor.FromRgb(66, 82, 98)),
             BorderThickness = new Thickness(1, 0, 1, 0),
             Child = panel,
