@@ -21,5 +21,6 @@ CodeXPedal 0.2.0-beta01 预发布版本：新增 Claude 剩余额度，Windows �
 
 - CI：Windows x64、macOS arm64 与 Intel 的构建和自动测试全部通过。
 - Mac mini（Apple 芯片）：曾用真实账户看到 Codex 与 Claude 额度；本版的设置页、下拉菜单对齐和悬浮窗修复尚未完成真机确认。
-- Windows、macOS 13、Intel Mac：本版未做真机验收。
+- Windows：作者已完成真机测试。
+- macOS 13、Intel Mac：本版未做真机验收。
 - 签名：未配置 Apple 证书和公证，仅 ad-hoc 签名。
