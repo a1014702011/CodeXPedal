@@ -32,9 +32,16 @@ public sealed class TrayService : IDisposable
 
     public void UpdateTooltip(MainViewModel viewModel)
     {
-        // [AI修改] 通知区域根据真实窗口拓扑决定是否加入 5 小时额度。
-        var fiveHour = viewModel.HasFiveHourQuota ? $"5小时 {viewModel.FiveHourQuota}  " : string.Empty;
-        var text = $"CodeXPedal  {fiveHour}7天 {viewModel.SevenDayQuota}  {viewModel.RefreshedAt}";
+        // [AI修改] 通知区域根据真实窗口拓扑决定是否加入 5 小时额度；两家都安装时分两行显示。
+        var lines = new List<string>();
+        foreach (var row in new[] { viewModel.CodexRow, viewModel.ClaudeRow }.Where(row => row.IsVisible))
+        {
+            var fiveHour = row.HasFiveHourQuota ? $"5h {row.FiveHourQuota} " : string.Empty;
+            lines.Add($"{(row.ShowLabel ? row.Label : "CodeXPedal")} {fiveHour}7d {row.SevenDayQuota} {row.RefreshedAt}");
+        }
+
+        var text = string.Join("\n", lines);
+        // [AI修改] 沿用 63 字符上限，兼容所有 WinForms 版本的托盘提示长度限制。
         _notifyIcon.Text = text.Length > 63 ? text[..63] : text;
     }
 

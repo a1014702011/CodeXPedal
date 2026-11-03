@@ -16,6 +16,9 @@ public sealed record AppSettings
 
     public int RefreshIntervalSeconds { get; init; } = 60;
 
+    // [AI修改] 实时读取 Claude 额度需要读取本机 Claude 登录令牌，必须由用户显式开启，默认关闭。
+    public bool ClaudeLiveQuota { get; init; }
+
     public double WindowLeft { get; init; } = double.NaN;
 
     public double WindowTop { get; init; } = double.NaN;

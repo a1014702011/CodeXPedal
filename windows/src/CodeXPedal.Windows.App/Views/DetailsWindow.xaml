@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="CodeXPedal 详情"
         Width="640"
-        Height="570"
+        Height="700"
         MinWidth="560"
         MinHeight="500"
         WindowStartupLocation="CenterOwner"
@@ -11,6 +11,7 @@
     <!-- [AI修改] 详情页展示真实数据来源和诊断，并按返回拓扑决定是否显示 5 小时额度。 -->
     <Grid Margin="24">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -25,13 +26,17 @@
             <StackPanel>
                 <TextBlock Text="用量详情" FontSize="22" FontWeight="SemiBold" />
                 <!-- [AI修改] 额度来源由真实快照决定，不再固定声称 app-server 已启用。 -->
-                <TextBlock Text="{Binding QuotaSourceLabel}" Margin="0,5,0,0" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" />
+                <TextBlock Text="{Binding QuotaSourceLabel}" Margin="0,5,0,0" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12"
+                           Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </StackPanel>
-            <TextBlock Grid.Column="1" Text="{Binding RefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="16" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding RefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="16" VerticalAlignment="Center"
+                       Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}" />
         </Grid>
 
         <!-- [AI修改] 折叠 5 小时卡片后自动重新等分，始终保留两项本地 Token 数据，避免双布局遗漏字段。 -->
-        <UniformGrid Grid.Row="1" Margin="0,24,0,0" Rows="1">
+        <!-- [AI修改] Codex 分组：未安装 Codex 且已安装 Claude 时整体隐藏。 -->
+        <UniformGrid Grid.Row="1" Margin="0,24,0,0" Rows="1"
+                     Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0"
                     Visibility="{Binding HasFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <StackPanel><TextBlock Text="5 小时剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding FiveHourQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
@@ -39,15 +44,13 @@
             <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0">
                 <StackPanel><TextBlock Text="7 天剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding SevenDayQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
             </Border>
-            <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0">
-                <StackPanel><TextBlock Text="今日 Token" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding TodayTokens}" FontSize="24" /></StackPanel>
-            </Border>
             <Border Background="{StaticResource CardBrush}" Padding="15">
-                <StackPanel><TextBlock Text="Claude 今日" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding ClaudeTodayTokens}" FontSize="24" /></StackPanel>
+                <StackPanel><TextBlock Text="今日 Token" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding TodayTokens}" FontSize="24" /></StackPanel>
             </Border>
         </UniformGrid>
 
-        <Grid Grid.Row="2" Margin="0,18,0,0">
+        <Grid Grid.Row="2" Margin="0,18,0,0"
+              Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="1*" />
                 <ColumnDefinition Width="1*" />
@@ -60,7 +63,35 @@
             <StackPanel Grid.Column="3"><TextBlock Text="待处理任务" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding PendingTasks}" FontSize="18" /></StackPanel>
         </Grid>
 
-        <GroupBox Grid.Row="3" Header="数据状态" Margin="0,24,0,0" Foreground="{StaticResource PrimaryTextBrush}" BorderBrush="{StaticResource BorderBrush}">
+        <!-- [AI修改] Claude 分组：只在本机安装 Claude 时显示，额度来源与采样时间独立于 Codex。 -->
+        <StackPanel Grid.Row="3" Margin="0,24,0,0"
+                    Visibility="{Binding ShowClaude, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Claude" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding ClaudeQuotaSourceLabel}" Margin="0,4,0,0" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding ClaudeRefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="16" VerticalAlignment="Center" />
+            </Grid>
+            <UniformGrid Margin="0,12,0,0" Rows="1">
+                <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0"
+                        Visibility="{Binding HasClaudeFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel><TextBlock Text="5 小时剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding ClaudeFiveHourQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
+                </Border>
+                <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0">
+                    <StackPanel><TextBlock Text="7 天剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding ClaudeSevenDayQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
+                </Border>
+                <Border Background="{StaticResource CardBrush}" Padding="15">
+                    <StackPanel><TextBlock Text="今日 Token" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding ClaudeTodayTokens}" FontSize="24" /></StackPanel>
+                </Border>
+            </UniformGrid>
+        </StackPanel>
+
+        <GroupBox Grid.Row="4" Header="数据状态" Margin="0,24,0,0" Foreground="{StaticResource PrimaryTextBrush}" BorderBrush="{StaticResource BorderBrush}">
             <!-- [AI修改] 诊断信息仅用于展示，禁止 TextBox 向只读属性回写。 -->
             <TextBox Text="{Binding Diagnostics, Mode=OneWay}"
                      Margin="10"
@@ -71,6 +102,6 @@
                      Foreground="{StaticResource SecondaryTextBrush}"
                      BorderThickness="0" />
         </GroupBox>
-        <Button Grid.Row="4" Content="关闭" Click="CloseButton_Click" HorizontalAlignment="Right" Margin="0,18,0,0" MinWidth="80" />
+        <Button Grid.Row="5" Content="关闭" Click="CloseButton_Click" HorizontalAlignment="Right" Margin="0,18,0,0" MinWidth="80" />
     </Grid>
 </Window>

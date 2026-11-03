@@ -1,5 +1,6 @@
 // [AI修改] 组织单实例、悬浮窗、托盘、任务栏栏位与定时刷新生命周期。
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Markup;
@@ -27,6 +28,7 @@ public partial class App : System.Windows.Application
     // [AI修改] 只在模式首次应用或发生切换时改变悬浮窗可见性，保留用户临时显示或隐藏的状态。
     private bool? _appliedTaskbarOnlyMode;
     private bool _isExiting;
+    private bool _appliedClaudeLiveQuota;
 
     public App()
     {
@@ -48,6 +50,13 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // [AI修改] 作为 Claude Code statusLine 命令被调用时只处理一次输入并立即退出，不创建窗口、不占用单实例锁。
+        if (e.Args.Length > 0 && e.Args[0] == ClaudeStatusLineHook.Argument)
+        {
+            RunClaudeStatusLineHook();
+            return;
+        }
+
         _mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
         if (!createdNew)
         {
@@ -71,6 +80,10 @@ public partial class App : System.Windows.Application
         }
 #endif
         _viewModel = new MainViewModel(settings);
+        // [AI修改] 启动时先探测安装情况，避免只装 Claude 的用户首帧看到空的 Codex 行。
+        var (codexDetected, claudeDetected) = ProviderDetection.Detect();
+        _viewModel.ApplySnapshot(UsageSnapshot.Empty(DateTimeOffset.Now) with { CodexDetected = codexDetected, ClaudeDetected = claudeDetected });
+        _appliedClaudeLiveQuota = settings.ClaudeLiveQuota;
         _floatingWindow = new FloatingWindow(_viewModel, SaveSettingsAsync, OpenSettings, OpenDetails, ExitApplication);
         _floatingWindow.RefreshRequested += async (_, _) => await RefreshNowAsync();
 
@@ -97,6 +110,23 @@ public partial class App : System.Windows.Application
         }
 #endif
         await RefreshNowAsync();
+    }
+
+    private void RunClaudeStatusLineHook()
+    {
+        try
+        {
+            using var input = Console.OpenStandardInput();
+            var text = ClaudeStatusLineHook.Run(input, ClaudeExecutableResolver.ConfigDirectory(), DateTimeOffset.UtcNow);
+            using var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false));
+            output.Write(text);
+        }
+        catch (IOException)
+        {
+            // [AI修改] Claude Code 提前关闭管道时静默退出，不弹窗。
+        }
+
+        Shutdown(0);
     }
 
 #if DEBUG
@@ -140,7 +170,7 @@ public partial class App : System.Windows.Application
         _viewModel.IsRefreshing = true;
         try
         {
-            var snapshot = await _snapshotService.RefreshAsync(_lifetime.Token);
+            var snapshot = await _snapshotService.RefreshAsync(_viewModel.Settings.ClaudeLiveQuota, _lifetime.Token);
 #if DEBUG
             // [AI修改] 自动验收可稳定模拟 Plus 或 Pro 的额度拓扑，不写入用户配置或 Release 行为。
             snapshot = ApplyCaptureQuotaOverride(snapshot);
@@ -192,6 +222,12 @@ public partial class App : System.Windows.Application
 
         ApplySettings(_viewModel.Settings);
         _ = SaveSettingsAsync(_viewModel.Settings);
+        // [AI修改] 切换 Claude 实时读取后立即刷新，其余设置变化不额外触发读取。
+        if (_appliedClaudeLiveQuota != _viewModel.Settings.ClaudeLiveQuota)
+        {
+            _appliedClaudeLiveQuota = _viewModel.Settings.ClaudeLiveQuota;
+            _ = RefreshNowAsync();
+        }
     }
 
     private void OnSnapshotChanged(object? sender, EventArgs e)

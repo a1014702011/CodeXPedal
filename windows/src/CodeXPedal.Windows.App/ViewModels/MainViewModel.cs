@@ -16,6 +16,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public MainViewModel(AppSettings settings)
     {
         _settings = settings.Normalize();
+        // [AI修改] 首次刷新前按默认快照显示 Codex 行，避免悬浮窗空白。
+        UpdateRows();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -53,6 +55,39 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string PendingTasks => _snapshot.CodexLocal?.PendingTasks.ToString() ?? "--";
 
     public string ClaudeTodayTokens => UsageFormatter.Tokens(_snapshot.ClaudeLocal?.TodayTokens);
+
+    // [AI修改] 按本机实际安装情况决定显示哪些分组；两者都未探测到时保留 Codex 作为默认入口。
+    public bool ShowCodex => _snapshot.CodexDetected || !_snapshot.ClaudeDetected;
+
+    public bool ShowClaude => _snapshot.ClaudeDetected;
+
+    public bool ShowBoth => ShowCodex && ShowClaude;
+
+    public bool ShowCodexTokens => IsFull && ShowCodex;
+
+    public string HeaderSubtitle => ShowBoth ? "Codex · Claude · 剩余额度" : ShowClaude ? "Claude · 剩余额度" : "Codex · 剩余额度";
+
+    public ProviderQuotaViewModel CodexRow { get; } = new("Codex");
+
+    public ProviderQuotaViewModel ClaudeRow { get; } = new("Claude");
+
+    // [AI修改] Claude 额度使用独立快照和同一共享陈旧规则，不借用 Codex 的采样时间。
+    private bool ClaudeStale => SharedQuotaCore.IsStale(_snapshot.ClaudeQuota, DateTimeOffset.UtcNow, _settings.RefreshIntervalSeconds);
+
+    public string ClaudeFiveHourQuota => ClaudeRow.FiveHourQuota;
+
+    public bool HasClaudeFiveHourQuota => ClaudeRow.HasFiveHourQuota;
+
+    public string ClaudeSevenDayQuota => ClaudeRow.SevenDayQuota;
+
+    public string ClaudeRefreshedAt => ClaudeRow.RefreshedAt;
+
+    public string ClaudeQuotaSourceLabel => _snapshot.ClaudeQuota.Source switch
+    {
+        ClaudeQuotaSource.LiveOAuth => ClaudeStale ? "Claude 额度来源：官方实时接口历史快照（非实时）" : "Claude 额度来源：官方实时接口",
+        ClaudeQuotaSource.StatusLine => $"Claude 额度来源：Claude Code 状态栏（{ClaudeRow.RefreshedAt}{(ClaudeStale ? "，已过期" : string.Empty)}）",
+        _ => "Claude 额度来源：不可用",
+    };
 
     // [AI修改] 将额度来源与错误诊断分开呈现，避免本地快照被误认为读取失败。
     public string QuotaSourceLabel => _snapshot.QuotaSource switch
@@ -95,6 +130,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Settings));
         OnPropertyChanged(nameof(IsCompact));
         OnPropertyChanged(nameof(IsFull));
+        OnPropertyChanged(nameof(ShowCodexTokens));
+        UpdateRows();
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -105,9 +142,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _settings = _settings with { WindowLeft = left, WindowTop = top };
     }
 
+    // [AI修改] 两行额度在同一处按快照刷新，所有入口读到的是同一份结果。
+    private void UpdateRows()
+    {
+        CodexRow.Update(ShowCodex, ShowClaude, _snapshot.FiveHourQuota, _snapshot.SevenDayQuota, _snapshot.QuotaObservedAt, QuotaStale);
+        var claude = _snapshot.ClaudeQuota;
+        ClaudeRow.Update(ShowClaude, ShowClaude, claude.FiveHourQuota, claude.SevenDayQuota, claude.ObservedAt, ClaudeStale);
+    }
+
     private void RaiseSnapshotProperties()
     {
+        UpdateRows();
         OnPropertyChanged(nameof(Snapshot));
+        OnPropertyChanged(nameof(ShowCodex));
+        OnPropertyChanged(nameof(ShowClaude));
+        OnPropertyChanged(nameof(ShowBoth));
+        OnPropertyChanged(nameof(ShowCodexTokens));
+        OnPropertyChanged(nameof(HeaderSubtitle));
+        OnPropertyChanged(nameof(ClaudeFiveHourQuota));
+        OnPropertyChanged(nameof(HasClaudeFiveHourQuota));
+        OnPropertyChanged(nameof(ClaudeSevenDayQuota));
+        OnPropertyChanged(nameof(ClaudeRefreshedAt));
+        OnPropertyChanged(nameof(ClaudeQuotaSourceLabel));
         OnPropertyChanged(nameof(FiveHourQuota));
         OnPropertyChanged(nameof(HasFiveHourQuota));
         OnPropertyChanged(nameof(HasNoFiveHourQuota));

@@ -12,30 +12,43 @@ import CodeXPedalCore
         self.store = store; self.preferences = preferences; self.windows = windows
         super.init(); menu.delegate = self; menu.autoenablesItems = false; item.menu = menu; update()
     }
+    // [AI修改] 只装一个工具时保持原格式；两者都装时缩写为「名称 5小时%/7天%」，避免菜单栏过长。
+    private func title(for row: ProviderRow, maximum: Bool) -> String {
+        let value: (QuotaWindow) -> String = { maximum ? "≈100%" : row.value(for: $0) }
+        guard row.showLabel else {
+            return row.windows.isEmpty ? "额度 --" : row.windows.map { "\($0.kind.label) \(value($0))" }.joined(separator: "  ")
+        }
+        return "\(row.name) " + (row.windows.isEmpty ? "--" : row.windows.map(value).joined(separator: "/"))
+    }
     func update() {
-        let entries = store.windows
-        let text = entries.isEmpty ? "额度 --" : entries.map { "\($0.kind.label) \(store.value(for: $0))" }.joined(separator: "  ")
+        let rows = store.rows
+        let text = rows.map { title(for: $0, maximum: false) }.joined(separator: "  ")
         // [AI修改] 只按已确认拓扑和最宽读数预留空间，避免固定宽度浪费或百分比刷新挤动邻项。
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.labelColor]
-        let maximum = entries.isEmpty ? "额度 --" : entries.map { "\($0.kind.label) ≈100%" }.joined(separator: "  ")
+        let maximum = rows.map { title(for: $0, maximum: true) }.joined(separator: "  ")
         item.length = ceil(NSAttributedString(string: maximum, attributes: attributes).size().width) + 16
         item.button?.attributedTitle = NSAttributedString(string: text, attributes: attributes)
-        item.button?.toolTip = "\(store.status)\n最近成功读取：\(store.updatedAt)"
-        item.button?.setAccessibilityLabel("CodeXPedal 剩余额度，\(text)，\(store.status)")
+        let order = rows.count > 1 ? "\n斜杠前为5小时、后为7天剩余" : ""
+        item.button?.toolTip = rows.map { "\($0.name)：\($0.status)，最近成功读取 \($0.updatedAt)" }.joined(separator: "\n") + order
+        item.button?.setAccessibilityLabel("CodeXPedal 剩余额度，\(text)")
         rebuildMenu()
     }
     func menuWillOpen(_ menu: NSMenu) { rebuildMenu() }
     private func rebuildMenu() {
         menu.removeAllItems()
         addText("CodeXPedal · 剩余额度")
-        menu.addItem(.separator())
-        if store.windows.isEmpty { addText("暂无可显示额度") }
-        for window in store.windows {
-            addText("\(window.kind.label)    \(store.value(for: window))")
-            if let reset = window.resetsAt { addText("重置：\(reset.formatted(date: .abbreviated, time: .shortened))") }
+        // [AI修改] 每个已安装工具一段：名称、各窗口剩余与重置时间、最近成功时间和状态。
+        for row in store.rows {
+            menu.addItem(.separator())
+            if row.showLabel { addText(row.name) }
+            if row.windows.isEmpty { addText("暂无可显示额度") }
+            for window in row.windows {
+                addText("\(window.kind.label)    \(row.value(for: window))")
+                if let reset = window.resetsAt { addText("重置：\(reset.formatted(date: .abbreviated, time: .shortened))") }
+            }
+            addText("最近成功：\(row.updatedAt)")
+            addText(row.status)
         }
-        addText("最近成功：\(store.updatedAt)")
-        addText(store.status)
         menu.addItem(.separator())
         let refresh = addAction(store.isRefreshing ? "正在刷新…" : "立即刷新", #selector(refreshNow), "r")
         refresh.isEnabled = !store.isRefreshing

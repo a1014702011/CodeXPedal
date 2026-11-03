@@ -8,8 +8,9 @@ public sealed class ClaudeLocalUsageReader
 {
     public ClaudeUsage? Read(DateTimeOffset now, ICollection<string> diagnostics)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var projectsPath = Path.Combine(home, ".claude", "projects");
+        // [AI修改] 与额度读取共用配置目录，支持 CLAUDE_CONFIG_DIR。
+        var configDirectory = ClaudeExecutableResolver.ConfigDirectory();
+        var projectsPath = Path.Combine(configDirectory, "projects");
         if (!Directory.Exists(projectsPath))
         {
             return null;
@@ -41,7 +42,7 @@ public sealed class ClaudeLocalUsageReader
                 }
             }
 
-            var tasksPath = Path.Combine(home, ".claude", "tasks");
+            var tasksPath = Path.Combine(configDirectory, "tasks");
             var taskCount = Directory.Exists(tasksPath)
                 ? Directory.EnumerateFiles(tasksPath, "*", options).Take(4097).Count()
                 : 0;

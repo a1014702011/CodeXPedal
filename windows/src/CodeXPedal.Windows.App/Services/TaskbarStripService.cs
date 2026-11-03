@@ -28,11 +28,10 @@ public sealed partial class TaskbarStripService : IDisposable
     private readonly string _reservationRecoveryPath;
     private HwndSource? _source;
     private Border? _rootVisual;
-    private TextBlock? _fiveHour;
-    private TextBlock? _sevenDay;
-    private TextBlock? _updatedAt;
-    private Border? _fiveHourSeparator;
-    private Border? _separator;
+    // [AI修改] Codex 与 Claude 各一行；两者同时显示时上下两行排列，只有一个时保持原单行外观。
+    private StripRow? _codexRow;
+    private StripRow? _claudeRow;
+    private bool _dualLayout;
     private IntPtr _reservedTaskList;
     private IntPtr _reservedTaskListParent;
     private Rect _originalTaskListBounds;
@@ -84,23 +83,10 @@ public sealed partial class TaskbarStripService : IDisposable
         }
 
         EnsureHost();
-        if (_fiveHour is not null && _fiveHourSeparator is not null)
-        {
-            // [AI修改] 只有官方或同一条本地快照真实返回 5 小时窗口时才占用任务栏空间。
-            _fiveHour.Text = $"5时 {viewModel.FiveHourQuota}";
-            _fiveHour.Visibility = viewModel.HasFiveHourQuota ? Visibility.Visible : Visibility.Collapsed;
-            _fiveHourSeparator.Visibility = viewModel.HasFiveHourQuota ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        if (_sevenDay is not null)
-        {
-            _sevenDay.Text = $"7天 {viewModel.SevenDayQuota}";
-        }
-
-        if (_updatedAt is not null)
-        {
-            _updatedAt.Text = viewModel.RefreshedAt;
-        }
+        // [AI修改] 只有官方或同一条本地快照真实返回 5 小时窗口时才占用任务栏空间。
+        _codexRow?.Apply(viewModel.CodexRow);
+        _claudeRow?.Apply(viewModel.ClaudeRow);
+        _dualLayout = viewModel.ShowBoth;
 
         if (_source is not null && NativeMethods.IsWindow(_source.Handle))
         {
@@ -160,29 +146,19 @@ public sealed partial class TaskbarStripService : IDisposable
 
     private Border CreateVisual()
     {
-        _fiveHour = CreateTextBlock(Colors.LightSkyBlue);
-        _sevenDay = CreateTextBlock(Colors.LightGreen);
-        _updatedAt = CreateTextBlock(Colors.WhiteSmoke);
-        // [AI修改] 创建阶段使用稳定占位，避免第一帧因空文字退化为极窄窗口。
-        _fiveHour.Text = "5时 --";
-        _fiveHour.Visibility = Visibility.Collapsed;
-        _sevenDay.Text = "7天 --";
-        _updatedAt.Text = "--:--:--";
-        _fiveHourSeparator = CreateSeparator();
-        _fiveHourSeparator.Visibility = Visibility.Collapsed;
-        _separator = CreateSeparator();
+        // [AI修改] 创建阶段使用稳定占位，避免第一帧因空文字退化为极窄窗口；Claude 行默认隐藏。
+        _codexRow = new StripRow("Codex", Colors.LightSkyBlue);
+        _claudeRow = new StripRow("Claude", Colors.LightSkyBlue);
+        _claudeRow.Panel.Visibility = Visibility.Collapsed;
         var panel = new StackPanel
         {
-            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            Orientation = System.Windows.Controls.Orientation.Vertical,
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
         };
-        panel.Children.Add(_fiveHour);
-        panel.Children.Add(_fiveHourSeparator);
-        panel.Children.Add(_sevenDay);
-        panel.Children.Add(_separator);
         // [AI修改] 任务栏保留当前实际存在的额度窗口和更新时间，不再显示月额度。
-        panel.Children.Add(_updatedAt);
+        panel.Children.Add(_codexRow.Panel);
+        panel.Children.Add(_claudeRow.Panel);
 
         var border = new Border
         {
@@ -417,7 +393,8 @@ public sealed partial class TaskbarStripService : IDisposable
             TaskListBefore = _originalTaskListScreenBounds,
             TaskListCurrent = taskListBounds,
             Strip = hasStripBounds ? stripBounds : default,
-            FiveHourVisible = _fiveHour?.Visibility == Visibility.Visible,
+            FiveHourVisible = _codexRow?.FiveHour.Visibility == Visibility.Visible,
+            DualLayout = _dualLayout,
             FontSize = _fontSize,
             NonOverlapping = nonOverlapping,
             Restored = restored,
@@ -547,19 +524,15 @@ public sealed partial class TaskbarStripService : IDisposable
         RestoreTaskList();
         _source = null;
         _rootVisual = null;
-        _fiveHour = null;
-        _sevenDay = null;
-        _updatedAt = null;
-        _fiveHourSeparator = null;
-        _separator = null;
+        _codexRow = null;
+        _claudeRow = null;
         _fontSize = TaskbarStripLayout.MinimumFontSize;
         _horizontalWidth = 180;
     }
 
     private void UpdateTypography(IntPtr taskbar)
     {
-        if (_fiveHour is null || _sevenDay is null || _updatedAt is null
-            || _fiveHourSeparator is null || _separator is null
+        if (_codexRow is null || _claudeRow is null
             || !NativeMethods.GetWindowRect(taskbar, out var taskbarRect))
         {
             return;
@@ -568,7 +541,10 @@ public sealed partial class TaskbarStripService : IDisposable
         var dpi = NativeMethods.GetDpiForWindow(taskbar);
         var dpiScale = dpi > 0 ? dpi / 96D : 1D;
         var logicalTaskbarHeight = (taskbarRect.Bottom - taskbarRect.Top) / dpiScale;
-        var fontSize = TaskbarStripLayout.CalculateFontSize(logicalTaskbarHeight);
+        // [AI修改] 两行布局时每行字号约为任务栏高度三成，单行保持原放大规则。
+        var fontSize = _dualLayout
+            ? TaskbarStripLayout.CalculateDualFontSize(logicalTaskbarHeight)
+            : TaskbarStripLayout.CalculateFontSize(logicalTaskbarHeight);
         if (Math.Abs(fontSize - _fontSize) < 0.05D)
         {
             return;
@@ -576,11 +552,9 @@ public sealed partial class TaskbarStripService : IDisposable
 
         // [AI修改] 字体随任务栏逻辑高度放大，常见 40 像素任务栏约为 22–24 DIP。
         _fontSize = fontSize;
-        _fiveHour.FontSize = fontSize;
-        _sevenDay.FontSize = fontSize;
-        _updatedAt.FontSize = fontSize;
-        _fiveHourSeparator.Height = Math.Min(logicalTaskbarHeight * 0.62D, fontSize * 0.92D);
-        _separator.Height = Math.Min(logicalTaskbarHeight * 0.62D, fontSize * 0.92D);
+        var separatorHeight = Math.Min(logicalTaskbarHeight * (_dualLayout ? 0.31D : 0.62D), fontSize * 0.92D);
+        _codexRow.SetTypography(fontSize, separatorHeight);
+        _claudeRow.SetTypography(fontSize, separatorHeight);
     }
 
     private void UpdateHorizontalWidth(IntPtr taskbar)
@@ -594,7 +568,8 @@ public sealed partial class TaskbarStripService : IDisposable
         var dpi = NativeMethods.GetDpiForWindow(taskbar);
         var dpiScale = dpi > 0 ? dpi / 96D : 1D;
         // [AI修改] 以放大后的实际文字宽度紧贴内容，不再保留 132 像素固定下限。
-        _horizontalWidth = TaskbarStripLayout.CalculatePhysicalWidth(_rootVisual.DesiredSize.Width, dpiScale);
+        _horizontalWidth = TaskbarStripLayout.CalculatePhysicalWidth(_rootVisual.DesiredSize.Width, dpiScale,
+            _dualLayout ? TaskbarStripLayout.MaximumDualPhysicalWidth : TaskbarStripLayout.MaximumPhysicalWidth);
     }
 
     private static TextBlock CreateTextBlock(MediaColor color) => new()
@@ -616,6 +591,62 @@ public sealed partial class TaskbarStripService : IDisposable
         Background = new SolidColorBrush(MediaColor.FromRgb(66, 82, 98)),
         VerticalAlignment = VerticalAlignment.Center,
     };
+
+    // [AI修改] 一行任务栏读数：名称（同时显示两家时才出现）、5 小时、7 天和更新时间。
+    private sealed class StripRow
+    {
+        public StripRow(string label, MediaColor fiveHourColor)
+        {
+            Tag = CreateTextBlock(Colors.WhiteSmoke);
+            Tag.Text = label;
+            Tag.Visibility = Visibility.Collapsed;
+            FiveHour = CreateTextBlock(fiveHourColor);
+            FiveHour.Text = "5时 --";
+            FiveHour.Visibility = Visibility.Collapsed;
+            SevenDay = CreateTextBlock(Colors.LightGreen);
+            SevenDay.Text = "7天 --";
+            UpdatedAt = CreateTextBlock(Colors.WhiteSmoke);
+            UpdatedAt.Text = "--:--:--";
+            FiveHourSeparator = CreateSeparator();
+            FiveHourSeparator.Visibility = Visibility.Collapsed;
+            Separator = CreateSeparator();
+            Panel = new StackPanel
+            {
+                Orientation = System.Windows.Controls.Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+            };
+            foreach (var child in new UIElement[] { Tag, FiveHour, FiveHourSeparator, SevenDay, Separator, UpdatedAt })
+            {
+                Panel.Children.Add(child);
+            }
+        }
+
+        public StackPanel Panel { get; }
+        public TextBlock Tag { get; }
+        public TextBlock FiveHour { get; }
+        public TextBlock SevenDay { get; }
+        public TextBlock UpdatedAt { get; }
+        public Border FiveHourSeparator { get; }
+        public Border Separator { get; }
+
+        public void Apply(ProviderQuotaViewModel row)
+        {
+            Panel.Visibility = row.IsVisible ? Visibility.Visible : Visibility.Collapsed;
+            Tag.Visibility = row.ShowLabel ? Visibility.Visible : Visibility.Collapsed;
+            FiveHour.Text = $"5时 {row.FiveHourQuota}";
+            FiveHour.Visibility = row.HasFiveHourQuota ? Visibility.Visible : Visibility.Collapsed;
+            FiveHourSeparator.Visibility = FiveHour.Visibility;
+            SevenDay.Text = $"7天 {row.SevenDayQuota}";
+            UpdatedAt.Text = row.RefreshedAt;
+        }
+
+        public void SetTypography(double fontSize, double separatorHeight)
+        {
+            Tag.FontSize = FiveHour.FontSize = SevenDay.FontSize = UpdatedAt.FontSize = fontSize;
+            FiveHourSeparator.Height = Separator.Height = separatorHeight;
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect

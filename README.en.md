@@ -2,7 +2,9 @@
 
 > If macOS says the software cannot be opened, open “System Settings → Privacy & Security”, scroll down to CodeXPedal, and click “Open Anyway”.
 
-A lightweight Codex quota monitor with a native Windows taskbar/floating window and a native macOS menu bar/floating strip.
+A lightweight Codex / Claude quota monitor with a native Windows taskbar/floating window and a native macOS menu bar/floating strip.
+
+When both are installed, the taskbar, floating window, menu bar and strip show Codex and Claude side by side; when only one is installed, only that one is shown. The Claude Code installation is discovered automatically.
 
 Shows actual five-hour and seven-day windows returned by the official service, not assumptions based on plan names. No monthly quota. HH:mm:ss is the last valid observation time; ≈ denotes an old snapshot.
 
@@ -22,11 +24,21 @@ If macOS says CodeXPedal cannot be opened, open “System Settings → Privacy &
 
 Live quotas require an installed, signed-in official Codex CLI and network access. A CLI bundled with the official desktop application can be reused. CodeXPedal does not bundle the CLI, sign users in, or read credentials. Set `CODEXPEDAL_CODEX_PATH` when discovery fails; macOS also offers a path setting. An API key alone does not imply ChatGPT subscription quotas.
 
+### Claude quotas
+
+Claude has no official quota command comparable to the Codex app-server, so CodeXPedal offers two sources:
+
+1. **Claude status-line bridge (default, recommended)**: click “Enable Claude status-line bridge” in Settings. CodeXPedal points Claude Code's `statusLine` at itself and reads the documented `rate_limits` field (five-hour/seven-day used percentage and reset time), writing only those fields to `~/.claude/codexpedal-rate-limits.json`. No credentials are read; any existing status line is backed up and restored on disable. Pro/Max only, updated only after an interactive Claude Code request; values older than about 3 minutes show ≈.
+2. **Live reading (off by default)**: when enabled, CodeXPedal reads the local Claude Code sign-in token (Windows: `~/.claude/.credentials.json`; macOS: Keychain item “Claude Code-credentials”, which prompts for permission) and calls Anthropic's usage endpoint at most once a minute. The endpoint backs Claude Code's `/usage` but is undocumented and may change. The token is never stored or sent elsewhere and is never refreshed by CodeXPedal; open Claude Code once when it expires.
+
+Discovery order: `CODEXPEDAL_CLAUDE_PATH` → native install (`~/.local/bin`) → npm → WinGet / Homebrew → Claude desktop-managed folder → PATH. A CLI or an existing Claude config directory (`CLAUDE_CONFIG_DIR` supported) counts as installed. Use `python scripts/claude-quota-probe.py` (add `--oauth` for the live endpoint) to check paths and quotas on your machine.
+
 End users do not need Rust, Python, Node, .NET SDK, or Xcode. Windows local-history fallback is not live; missing data is shown as `--`. The Mac client does not scan conversation content. Neither client uploads account or usage data.
 
 ## Features
 
 - Window durations determine single/dual quotas; snapshots never mix times or buckets.
+- Detects installed Codex / Claude; when both exist each gets its own row with its own sample time and ≈ marker.
 - Windows: taskbar-only mode, compact/full floating window, details and settings.
 - macOS: menu-bar-only mode, 20–42pt strip, details and settings.
 - Shared timeout/error/age semantics; failed reads do not change observation time.
@@ -58,4 +70,4 @@ make run
 
 CI builds/tests, native UI verification, live-account comparison, and signing/notarization are separate gates. Unexecuted checks remain NOT_RUN. An unavailable Mac mini is not a passed device test.
 
-MIT. Required notices are retained in [attribution](docs/BRANDING.md) and [LICENSE](LICENSE). This is not an official OpenAI product.
+MIT. Required notices are retained in [attribution](docs/BRANDING.md) and [LICENSE](LICENSE). This is not an official OpenAI or Anthropic product.

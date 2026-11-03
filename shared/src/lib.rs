@@ -14,6 +14,9 @@ const PERCENT: i32 = 4;
 const TOO_LARGE: i32 = 5;
 const ARGUMENT: i32 = 6;
 const INTERNAL: i32 = 7;
+// [AI修改] Claude 时间戳上限与 Codex 一致（9999-12-31），毫秒值自动换算为秒。
+const MAX_EPOCH: f64 = 253_402_300_800.0;
+const MODE_CLAUDE: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -39,14 +42,163 @@ fn field<'a>(value: &'a Value, camel: &str, snake: &str, local: bool) -> Option<
         .or_else(|| if local { value.get(snake) } else { None })
 }
 
+// [AI修改] 公历日期转 Unix 天数（Howard Hinnant 算法），避免为单一时间格式引入日期库。
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = year - era * 400;
+    let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
+}
+
+// [AI修改] 只接受 RFC 3339 完整时间（含 Z 或 ±HH:MM 时区），格式不符时返回 None，不猜测本地时区。
+fn parse_rfc3339(text: &str) -> Option<f64> {
+    let b = text.trim().as_bytes();
+    let digits = |range: std::ops::Range<usize>| -> Option<i64> {
+        let part = b.get(range)?;
+        if part.is_empty() || !part.iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        part.iter()
+            .try_fold(0i64, |acc, d| Some(acc * 10 + i64::from(d - b'0')))
+    };
+    if b.len() < 20
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || !matches!(b[10], b'T' | b't' | b' ')
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return None;
+    }
+    let (year, month, day) = (digits(0..4)?, digits(5..7)?, digits(8..10)?);
+    let (hour, minute, second) = (digits(11..13)?, digits(14..16)?, digits(17..19)?);
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&month)
+        || day < 1
+        || day > month_days[(month - 1) as usize]
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    let mut index = 19;
+    let mut fraction = 0.0;
+    if b[index] == b'.' {
+        let start = index + 1;
+        index = start;
+        while index < b.len() && b[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == start || index - start > 9 {
+            return None;
+        }
+        fraction = digits(start..index)? as f64 / 10f64.powi((index - start) as i32);
+    }
+    let offset = match b.get(index..)? {
+        [b'Z' | b'z'] => 0,
+        [sign @ (b'+' | b'-'), _, _, b':', _, _] => {
+            let (h, m) = (digits(index + 1..index + 3)?, digits(index + 4..index + 6)?);
+            if h > 23 || m > 59 {
+                return None;
+            }
+            (h * 3600 + m * 60) * if *sign == b'-' { -1 } else { 1 }
+        }
+        _ => return None,
+    };
+    let seconds =
+        days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second - offset;
+    Some(seconds as f64 + fraction)
+}
+
+// [AI修改] Claude 重置时间可能是 Unix 秒、毫秒或 RFC 3339 字符串；无效值视为未提供，不编造重置时间。
+fn reset_seconds(value: &Value) -> Option<f64> {
+    let seconds = match value {
+        Value::Number(number) => number
+            .as_f64()
+            .map(|v| if v > 100_000_000_000.0 { v / 1000.0 } else { v }),
+        Value::String(text) => parse_rfc3339(text),
+        _ => None,
+    }?;
+    (seconds.is_finite() && seconds > 0.0 && seconds < MAX_EPOCH).then_some(seconds)
+}
+
+// [AI修改] Claude 额度：statusLine 的 rate_limits 与官方 usage 接口共用一个入口。
+// 窗口名本身就是周期（five_hour=300、seven_day=10080），其他桶（如 seven_day_opus、spend_limit）忽略。
+fn parse_claude(root: &Value, observed_at: f64) -> Result<PedalSnapshot, i32> {
+    if !root.is_object() {
+        return Err(INVALID);
+    }
+    let bucket = match root.get("rate_limits") {
+        Some(inner) if !inner.is_null() => inner,
+        _ => root,
+    };
+    if !bucket.is_object() {
+        return Err(INVALID);
+    }
+    if bucket.get("five_hour").is_none() && bucket.get("seven_day").is_none() {
+        return Err(MISSING);
+    }
+    let mut windows = Vec::with_capacity(2);
+    for (key, duration) in [("five_hour", 300u32), ("seven_day", 10080)] {
+        let Some(raw) = bucket.get(key).filter(|v| !v.is_null()) else {
+            continue;
+        };
+        if !raw.is_object() {
+            return Err(INVALID);
+        }
+        let used = raw
+            .get("used_percentage")
+            .or_else(|| raw.get("utilization"))
+            .and_then(Value::as_f64)
+            .ok_or(INVALID)?;
+        if !used.is_finite() || used < 0.0 {
+            return Err(PERCENT);
+        }
+        let reset = raw.get("resets_at").and_then(reset_seconds);
+        windows.push(PedalWindow {
+            duration_minutes: duration,
+            has_reset: u32::from(reset.is_some()),
+            // [AI修改] 官方接口超额时会报告超过100%，剩余按0%显示，不当作格式错误。
+            used_percent: used.min(100.0),
+            resets_at: reset.unwrap_or(0.0),
+        });
+    }
+    Ok(PedalSnapshot {
+        abi_version: ABI,
+        window_count: windows.len() as u32,
+        observed_at,
+        first: windows.first().copied().unwrap_or_default(),
+        second: windows.get(1).copied().unwrap_or_default(),
+    })
+}
+
 fn parse(data: &[u8], observed_at: f64, mode: u32) -> Result<PedalSnapshot, i32> {
     if data.len() > MAX_INPUT {
         return Err(TOO_LARGE);
     }
-    if !observed_at.is_finite() || observed_at <= 0.0 || mode > 1 {
+    if !observed_at.is_finite() || observed_at <= 0.0 || mode > MODE_CLAUDE {
         return Err(ARGUMENT);
     }
     let root: Value = serde_json::from_slice(data).map_err(|_| INVALID)?;
+    if mode == MODE_CLAUDE {
+        return parse_claude(&root, observed_at);
+    }
     let local = mode == 1;
     let bucket = if local {
         if let Some(id) = root.get("limit_id")
@@ -96,7 +248,7 @@ fn parse(data: &[u8], observed_at: f64, mode: u32) -> Result<PedalSnapshot, i32>
         }
         let reset = field(raw, "resetsAt", "resets_at", local)
             .and_then(Value::as_f64)
-            .filter(|v| v.is_finite() && *v > 0.0 && *v < 253_402_300_800.0);
+            .filter(|v| v.is_finite() && *v > 0.0 && *v < MAX_EPOCH);
         windows.push(PedalWindow {
             duration_minutes: duration,
             has_reset: u32::from(reset.is_some()),
@@ -439,7 +591,7 @@ mod tests {
     #[test]
     fn bad_arguments() {
         assert_eq!(parse(b"{}", f64::NAN, 0), Err(ARGUMENT));
-        assert_eq!(parse(b"{}", 1.0, 2), Err(ARGUMENT));
+        assert_eq!(parse(b"{}", 1.0, 3), Err(ARGUMENT));
     }
     #[test]
     fn fresh_then_age_boundary() {
@@ -520,6 +672,115 @@ mod tests {
             0
         );
         assert_eq!(out, parse(text, 1800000000.0, 0).unwrap());
+    }
+    // [AI修改] Claude 额度：statusLine 与官方 usage 接口两种格式。
+    fn claude(text: &str) -> Result<PedalSnapshot, i32> {
+        parse(text.as_bytes(), 1800000000.0, MODE_CLAUDE)
+    }
+    #[test]
+    fn claude_statusline_dual() {
+        let s = claude(r#"{"rate_limits":{"seven_day":{"used_percentage":41.2,"resets_at":1738857600},"five_hour":{"used_percentage":23.5,"resets_at":1738425600}}}"#).unwrap();
+        assert_eq!(s.window_count, 2);
+        assert_eq!(s.first.duration_minutes, 300);
+        assert_eq!(s.first.used_percent, 23.5);
+        assert_eq!(s.first.resets_at, 1738425600.0);
+        assert_eq!(s.second.duration_minutes, 10080);
+        assert_eq!(pedal_remaining(s.second.used_percent), 58.8);
+    }
+    #[test]
+    fn claude_oauth_iso_reset() {
+        let s = claude(r#"{"five_hour":{"utilization":8.0,"resets_at":"2026-01-22T09:00:00Z"},"seven_day":{"utilization":77,"resets_at":"2026-01-22T17:00:00.123+08:00"},"seven_day_opus":{"utilization":99}}"#).unwrap();
+        assert_eq!(s.window_count, 2);
+        assert_eq!(s.first.resets_at, 1769072400.0);
+        assert!((s.second.resets_at - 1769072400.123).abs() < 1e-6);
+    }
+    #[test]
+    fn claude_over_limit_clamped() {
+        let s = claude(r#"{"five_hour":{"utilization":123.4,"resets_at":null}}"#).unwrap();
+        assert_eq!(s.first.used_percent, 100.0);
+        assert_eq!(s.first.has_reset, 0);
+        assert_eq!(pedal_remaining(s.first.used_percent), 0.0);
+    }
+    #[test]
+    fn claude_single_and_empty() {
+        assert_eq!(
+            claude(r#"{"seven_day":{"used_percentage":5}}"#)
+                .unwrap()
+                .first
+                .duration_minutes,
+            10080
+        );
+        assert_eq!(
+            claude(r#"{"five_hour":null,"seven_day":null}"#)
+                .unwrap()
+                .window_count,
+            0
+        );
+    }
+    #[test]
+    fn claude_missing_and_invalid() {
+        assert_eq!(
+            claude(r#"{"rate_limits":{"spend_limit":{"used_percentage":5}}}"#),
+            Err(MISSING)
+        );
+        assert_eq!(claude(r#"{"cwd":"/x"}"#), Err(MISSING));
+        assert_eq!(claude(r#"[1]"#), Err(INVALID));
+        assert_eq!(claude(r#"{"five_hour":3}"#), Err(INVALID));
+        assert_eq!(
+            claude(r#"{"five_hour":{"used_percentage":"7"}}"#),
+            Err(INVALID)
+        );
+        assert_eq!(
+            claude(r#"{"five_hour":{"used_percentage":-1}}"#),
+            Err(PERCENT)
+        );
+    }
+    #[test]
+    fn claude_reset_variants() {
+        let ms =
+            claude(r#"{"five_hour":{"used_percentage":1,"resets_at":1738425600000}}"#).unwrap();
+        assert_eq!(ms.first.resets_at, 1738425600.0);
+        for bad in [
+            r#""2026-13-01T00:00:00Z""#,
+            r#""2026-02-30T00:00:00Z""#,
+            r#""2026-01-01T00:00:00""#,
+            r#""tomorrow""#,
+            "-5",
+            "true",
+        ] {
+            let text = format!(r#"{{"five_hour":{{"used_percentage":1,"resets_at":{bad}}}}}"#);
+            assert_eq!(claude(&text).unwrap().first.has_reset, 0, "{bad}");
+        }
+    }
+    #[test]
+    fn rfc3339_known_values() {
+        assert_eq!(parse_rfc3339("1970-01-01T00:00:00Z"), Some(0.0));
+        assert_eq!(
+            parse_rfc3339("2000-02-29T12:00:00-01:30"),
+            Some(951_831_000.0)
+        );
+        assert_eq!(
+            parse_rfc3339("2026-11-03 07:19:14+00:00"),
+            Some(1_793_690_354.0)
+        );
+    }
+    #[test]
+    fn claude_ffi_matches_rust() {
+        let text = br#"{"rate_limits":{"five_hour":{"used_percentage":23.5}}}"#;
+        let mut out = PedalSnapshot::default();
+        assert_eq!(
+            unsafe {
+                pedal_parse(
+                    text.as_ptr(),
+                    text.len(),
+                    1800000000.0,
+                    MODE_CLAUDE,
+                    &mut out,
+                )
+            },
+            0
+        );
+        assert_eq!(out.first.duration_minutes, 300);
     }
     #[test]
     fn abi_layout() {

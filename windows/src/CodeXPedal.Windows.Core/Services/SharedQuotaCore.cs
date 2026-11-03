@@ -49,6 +49,12 @@ public static class SharedQuotaCore
         var bytes = Encoding.UTF8.GetBytes(json);
         return ParseNative(bytes, (nuint)bytes.Length, observedAt.ToUnixTimeMilliseconds() / 1000D, local ? 1U : 0U, out snapshot);
     }
+    // [AI修改] Claude 的 statusLine 缓存与官方 usage 响应统一交给共享核心 mode=2 解析。
+    internal static int ParseClaude(string json, DateTimeOffset observedAt, out NativeQuotaSnapshot snapshot)
+    {
+        var bytes = Encoding.UTF8.GetBytes(json);
+        return ParseNative(bytes, (nuint)bytes.Length, observedAt.ToUnixTimeMilliseconds() / 1000D, 2U, out snapshot);
+    }
     internal static NativeQuotaSnapshot Apply(NativeQuotaSnapshot previous, NativeQuotaSnapshot incoming, int status)
     {
         _ = ApplyNative(previous, incoming, status, out var snapshot);
@@ -82,6 +88,15 @@ public static class SharedQuotaCore
     public static bool IsStale(UsageSnapshot snapshot, DateTimeOffset now, double refreshSeconds) =>
         IsStaleNative(FromWindows(snapshot.FiveHourQuota, snapshot.SevenDayQuota, snapshot.QuotaObservedAt),
             now.ToUnixTimeMilliseconds() / 1000D, refreshSeconds, snapshot.QuotaReadFailed ? 1U : 0U) != 0;
+    // [AI修改] Claude 与 Codex 使用同一陈旧规则（错误、采样年龄、窗口复位、时钟倒退）。
+    public static bool IsStale(ClaudeQuotaSnapshot snapshot, DateTimeOffset now, double refreshSeconds) =>
+        IsStaleNative(FromWindows(snapshot.FiveHourQuota, snapshot.SevenDayQuota, snapshot.ObservedAt),
+            now.ToUnixTimeMilliseconds() / 1000D, refreshSeconds, snapshot.ReadFailed ? 1U : 0U) != 0;
+
+    // [AI修改] Claude 响应缺少窗口时提示更具体，其余错误与 Codex 共用文案。
+    internal static string ClaudeErrorMessage(int code) => code == 2
+        ? "Claude 响应没有5小时或7天额度，本次未更新"
+        : "Claude " + ErrorMessage(code);
 
     internal static string ErrorMessage(int code) => code switch
     {

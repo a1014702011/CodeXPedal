@@ -15,6 +15,14 @@ public enum QuotaDataSource
     LocalSession,
 }
 
+// [AI修改] Claude 额度来源：默认读取状态栏桥接缓存，用户在设置中显式开启后才调用官方实时接口。
+public enum ClaudeQuotaSource
+{
+    Unavailable,
+    LiveOAuth,
+    StatusLine,
+}
+
 public sealed record QuotaWindow(
     QuotaWindowKind Kind,
     double UsedPercent,
@@ -39,6 +47,17 @@ public sealed record ClaudeUsage(
     int TaskCount,
     int ParsedFileCount);
 
+// [AI修改] Claude 额度与 Codex 额度各自独立保存采样时间和失败状态，界面不拼接两家数据。
+public sealed record ClaudeQuotaSnapshot(
+    QuotaWindow? FiveHourQuota,
+    QuotaWindow? SevenDayQuota,
+    ClaudeQuotaSource Source,
+    DateTimeOffset? ObservedAt,
+    bool ReadFailed)
+{
+    public static ClaudeQuotaSnapshot Empty { get; } = new(null, null, ClaudeQuotaSource.Unavailable, null, false);
+}
+
 public sealed record UsageSnapshot(
     DateTimeOffset RefreshedAt,
     QuotaWindow? FiveHourQuota,
@@ -51,6 +70,10 @@ public sealed record UsageSnapshot(
 {
     // [AI修改] 失败与来源分别记录，旧官方快照不能被重新标为实时。
     public bool QuotaReadFailed { get; init; }
+    // [AI修改] Claude 额度和两家工具的安装探测结果；未探测到时界面不显示对应分组。
+    public ClaudeQuotaSnapshot ClaudeQuota { get; init; } = ClaudeQuotaSnapshot.Empty;
+    public bool CodexDetected { get; init; } = true;
+    public bool ClaudeDetected { get; init; }
     // [AI修改] 初始快照不把未知数据误报为 0。
     public static UsageSnapshot Empty(DateTimeOffset now) => new(
         now,

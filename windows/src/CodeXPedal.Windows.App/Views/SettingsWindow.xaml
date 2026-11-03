@@ -4,7 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="CodeXPedal 设置"
         Width="430"
-        Height="490"
+        Height="690"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Background="#141B23">
@@ -41,6 +41,16 @@
                 <TextBlock Grid.Column="2" Text="秒（15–3600）" Margin="8,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource SecondaryTextBrush}" />
             </Grid>
             <TextBlock x:Name="ValidationText" Margin="150,6,0,0" Foreground="#FFFF8B8B" FontSize="11" />
+
+            <!-- [AI修改] Claude 额度：默认通过状态栏桥接获取（官方字段、不读凭据），实时读取需显式开启。 -->
+            <TextBlock Text="Claude 额度" FontSize="15" FontWeight="SemiBold" Margin="0,14,0,8" />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                <Button x:Name="ClaudeBridgeButton" Click="ClaudeBridgeButton_Click" MinWidth="150" />
+                <TextBlock x:Name="ClaudeBridgeStatus" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11" TextWrapping="Wrap" MaxWidth="200" Foreground="{StaticResource SecondaryTextBrush}" />
+            </StackPanel>
+            <TextBlock Margin="0,0,0,12" Text="桥接会把 Claude Code 的状态栏设为本程序，读取官方提供的 5 小时/7 天额度，只在 Claude Code 发消息时更新；原状态栏会备份，停用后恢复。" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" />
+            <CheckBox x:Name="ClaudeLiveQuotaCheckBox" Content="实时读取 Claude 额度（读取本机 Claude 登录令牌）" Margin="0,0,0,6" />
+            <TextBlock Margin="22,0,0,0" Text="默认关闭。开启后每分钟最多一次把令牌发送到 Anthropic 官方接口，不保存、不上传到其他地方；令牌过期时需打开一次 Claude Code。" Foreground="{StaticResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" />
         </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">

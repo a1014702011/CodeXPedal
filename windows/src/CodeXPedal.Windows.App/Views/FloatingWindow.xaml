@@ -14,6 +14,39 @@
         MouseDoubleClick="Window_MouseDoubleClick"
         Closing="Window_Closing"
         LocationChanged="Window_LocationChanged">
+    <Window.Resources>
+        <!-- [AI修改] 单行额度模板：名称标签（可选）+ 5 小时（按返回拓扑）+ 7 天 + 更新时间，Codex/Claude 共用。 -->
+        <DataTemplate x:Key="QuotaRowTemplate">
+            <Border Background="{StaticResource CardBrush}" Height="66" Margin="0,0,0,6"
+                    Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Width="62" BorderBrush="#384A5B" BorderThickness="0,0,1,0"
+                            Visibility="{Binding ShowLabel, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding Label}" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <UniformGrid Rows="1">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                                    Visibility="{Binding HasFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="5 小时" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding FiveHourQuota}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" />
+                        </StackPanel>
+                        <Border BorderBrush="#384A5B" BorderThickness="{Binding SevenDayBorder}">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <TextBlock Text="7 天" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding SevenDayQuota}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <Border BorderBrush="#384A5B" BorderThickness="1,0,0,0">
+                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                <TextBlock Text="更新时间" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding RefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
     <!-- [AI修改] 紧凑模式按真实额度拓扑显示 5 小时/7 天额度和精确更新时间。 -->
     <Border Margin="8"
             Padding="14"
@@ -46,60 +79,22 @@
                 </Border>
                 <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="CodeXPedal" FontSize="14" FontWeight="SemiBold" />
-                    <TextBlock Text="Codex · 剩余额度" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
+                    <!-- [AI修改] 副标题随已安装的工具变化。 -->
+                    <TextBlock Text="{Binding HeaderSubtitle}" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" />
                 </StackPanel>
                 <Button Grid.Column="2" Content="紧凑" Click="CompactButton_Click" Padding="9,3" FontSize="11" />
             </Grid>
 
-            <!-- [AI修改] Plus/Standard Business 返回 5 小时窗口时显示三栏。 -->
-            <Grid Grid.Row="1" Background="{StaticResource CardBrush}" Margin="0" Height="66"
-                  Visibility="{Binding HasFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*" />
-                    <ColumnDefinition Width="1*" />
-                    <ColumnDefinition Width="1.15*" />
-                </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBlock Text="5 小时" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
-                    <TextBlock Text="{Binding FiveHourQuota}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" />
-                </StackPanel>
-                <Border Grid.Column="1" BorderBrush="#384A5B" BorderThickness="1,0,0,0">
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <TextBlock Text="7 天" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
-                        <TextBlock Text="{Binding SevenDayQuota}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Border>
-                <Border Grid.Column="2" BorderBrush="#384A5B" BorderThickness="1,0,0,0">
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <TextBlock Text="更新时间" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
-                        <TextBlock Text="{Binding RefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Border>
-            </Grid>
+            <!-- [AI修改] Codex 与 Claude 各占一行，按本机安装情况显示；同时存在时左侧加名称标签。 -->
+            <StackPanel Grid.Row="1">
+                <ContentControl Content="{Binding CodexRow}" ContentTemplate="{StaticResource QuotaRowTemplate}" Focusable="False" />
+                <ContentControl Content="{Binding ClaudeRow}" ContentTemplate="{StaticResource QuotaRowTemplate}" Focusable="False" />
+            </StackPanel>
 
-            <!-- [AI修改] Pro 未返回 5 小时窗口时只保留 7 天额度和更新时间，不显示空占位。 -->
-            <Grid Grid.Row="1" Background="{StaticResource CardBrush}" Margin="0" Height="66"
-                  Visibility="{Binding HasNoFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1*" />
-                    <ColumnDefinition Width="1.15*" />
-                </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBlock Text="7 天" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
-                    <TextBlock Text="{Binding SevenDayQuota}" FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" />
-                </StackPanel>
-                <!-- [AI修改] 月额度已移除，更新时间直接放在 7 天额度右侧。 -->
-                <Border Grid.Column="1" BorderBrush="#384A5B" BorderThickness="1,0,0,0">
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <TextBlock Text="更新时间" FontSize="11" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
-                        <TextBlock Text="{Binding RefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-
+            <!-- [AI修改] 本机 Token 统计只属于 Codex，未安装 Codex 时隐藏。 -->
             <Grid Grid.Row="2"
-                  Margin="0,10,0,0"
-                  Visibility="{Binding IsFull, Converter={StaticResource BooleanToVisibilityConverter}}">
+                  Margin="0,4,0,0"
+                  Visibility="{Binding ShowCodexTokens, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1*" />
                     <ColumnDefinition Width="1*" />

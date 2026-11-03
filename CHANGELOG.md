@@ -1,5 +1,14 @@
 # 变更记录
 
+## 0.2.0-beta01
+
+- 新增 Claude 剩余额度：自动查找 Claude Code，已安装即显示；Codex 与 Claude 都安装时任务栏、悬浮窗、菜单栏、横条同时显示两组，只装一个则只显示一个。
+- Claude 额度默认来自用户启用的“Claude 状态栏桥接”（官方 rate_limits 字段，不读凭据，原状态栏备份可恢复）；可选“实时读取”默认关闭。
+- 共享核心新增 Claude 解析（mode=2），两端共用同一剩余计算、失败保留和陈旧规则。
+- 新增 `scripts/claude-quota-probe.py` 本机探针，以及 Rust、Windows、Mac 三端 Claude 自动测试。
+
+测试结果以实际报告为准，草稿不代表真机验收通过。
+
 ## 0.1.0-beta01
 
 - 建立CodeXPedal独立版本与全新发布历史。

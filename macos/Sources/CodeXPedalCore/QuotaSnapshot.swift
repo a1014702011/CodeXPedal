@@ -28,6 +28,8 @@ public struct QuotaDisplayState: Equatable, Sendable {
     public init() {}
     // [AI修改] 状态替换由共享核心处理，宿主只保留界面错误文字。
     public mutating func accept(_ value: QuotaSnapshot) { snapshot = SharedQuotaCore.apply(previous: snapshot, incoming: value, failed: false); errorMessage = nil }
+    // [AI修改] 用户关闭 Claude 实时读取后清除旧的接口错误，快照与采样时间保持不变。
+    public mutating func clearError() { errorMessage = nil }
     public mutating func fail(_ message: String) { snapshot = SharedQuotaCore.apply(previous: snapshot, incoming: nil, failed: true); errorMessage = message }
     public func isStale(at now: Date, refreshInterval: TimeInterval) -> Bool {
         SharedQuotaCore.isStale(snapshot, at: now, interval: refreshInterval, failed: errorMessage != nil)

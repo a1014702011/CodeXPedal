@@ -16,32 +16,44 @@ private struct PanelMaterial: NSViewRepresentable {
     @ObservedObject var preferences: Preferences
     let openDetails: () -> Void
     private let quotaColor = Color(red: 0.34, green: 0.84, blue: 0.71)
-    var body: some View {
+    // [AI修改] 两者都安装时上下两行、每行带名称且字号按 0.8 缩放，保持横条高度可控；只装一个时与原横条一致。
+    private func rowView(_ row: ProviderRow, size: Double) -> some View {
         HStack(spacing: 14) {
-            if store.windows.isEmpty {
+            if row.showLabel {
+                Text(row.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).frame(minWidth: 44, alignment: .leading)
+            }
+            if row.windows.isEmpty {
                 Text("额度").font(.system(size: 12)).foregroundStyle(.white.opacity(0.8))
-                Text("--").font(.system(size: preferences.fontSize, weight: .semibold, design: .rounded)).foregroundStyle(quotaColor)
+                Text("--").font(.system(size: size, weight: .semibold, design: .rounded)).foregroundStyle(quotaColor)
             } else {
-                ForEach(store.windows, id: \.kind) { window in
+                ForEach(row.windows, id: \.kind) { window in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(window.kind.label).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8))
-                        Text(store.value(for: window))
-                            .font(.system(size: preferences.fontSize, weight: .semibold, design: .rounded))
-                            .monospacedDigit().foregroundStyle(store.stale ? Color.white.opacity(0.85) : quotaColor)
+                        Text(row.value(for: window))
+                            .font(.system(size: size, weight: .semibold, design: .rounded))
+                            .monospacedDigit().foregroundStyle(row.stale ? Color.white.opacity(0.85) : quotaColor)
                     }
                 }
             }
-            Rectangle().fill(.white.opacity(0.3)).frame(width: 1, height: preferences.fontSize)
-            Text(store.updatedAt).font(.system(size: preferences.fontSize * 0.72, weight: .medium, design: .monospaced)).foregroundStyle(.white)
+            Spacer(minLength: 0)
+            Rectangle().fill(.white.opacity(0.3)).frame(width: 1, height: size)
+            Text(row.updatedAt).font(.system(size: size * 0.72, weight: .medium, design: .monospaced)).foregroundStyle(.white)
+        }
+    }
+    var body: some View {
+        let rows = store.rows
+        let size = rows.count > 1 ? max(20, preferences.fontSize * 0.8) : preferences.fontSize
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(rows) { row in rowView(row, size: size) }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
         .background(Color.black.opacity(0.72)).background(PanelMaterial())
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.23), lineWidth: 1))
         .fixedSize()
-        .help("\(store.status)\n最近成功读取：\(store.updatedAt)\n双击查看详情，拖动调整位置。")
+        .help(store.rows.map { "\($0.name)：\($0.status)，最近成功读取 \($0.updatedAt)" }.joined(separator: "\n") + "\n双击查看详情，拖动调整位置。")
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("剩余额度，\(store.status)，最近成功读取\(store.updatedAt)")
+        .accessibilityLabel("剩余额度，" + store.rows.map { "\($0.name)\($0.status)，最近成功读取\($0.updatedAt)" }.joined(separator: "；"))
     }
 }
 

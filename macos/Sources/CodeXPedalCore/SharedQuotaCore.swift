@@ -7,15 +7,17 @@ enum SharedQuotaCore {
         guard pedal_abi_version() == 1, MemoryLayout<PedalSnapshot>.size == 64,
               MemoryLayout<PedalWindow>.size == 24 else { throw QuotaReadError.invalidResponse }
     }
-    static func parse(_ data: Data, observedAt: Date) throws -> QuotaSnapshot {
+    // [AI修改] mode=0 Codex 官方响应；mode=2 Claude（statusLine rate_limits 或官方 usage 响应）。
+    static let claudeMode: UInt32 = 2
+    static func parse(_ data: Data, observedAt: Date, mode: UInt32 = 0) throws -> QuotaSnapshot {
         try checkABI()
         var native = PedalSnapshot()
         let status = data.withUnsafeBytes { bytes in
-            pedal_parse(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, observedAt.timeIntervalSince1970, 0, &native)
+            pedal_parse(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count, observedAt.timeIntervalSince1970, mode, &native)
         }
         switch status {
         case 0: return decode(native)
-        case 2: throw QuotaReadError.missingBucket
+        case 2: throw mode == claudeMode ? QuotaReadError.claudeMissing : QuotaReadError.missingBucket
         case 3: throw QuotaReadError.duplicateWindow
         case 4: throw QuotaReadError.invalidPercent
         case 5: throw QuotaReadError.outputTooLarge

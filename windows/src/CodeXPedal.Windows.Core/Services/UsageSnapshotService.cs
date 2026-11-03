@@ -9,22 +9,35 @@ public sealed class UsageSnapshotService : IDisposable
     private readonly CodexLocalRateLimitReader _localRateLimits = new();
     private readonly CodexLocalUsageReader _codexLocal = new();
     private readonly ClaudeLocalUsageReader _claudeLocal = new();
+    private readonly ClaudeQuotaReader _claudeQuota = new();
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private NativeQuotaSnapshot _lastQuota;
     private QuotaDataSource _lastSource;
 
-    public async Task<UsageSnapshot> RefreshAsync(CancellationToken cancellationToken)
+    public Task<UsageSnapshot> RefreshAsync(CancellationToken cancellationToken) => RefreshAsync(false, cancellationToken);
+
+    // [AI修改] 每次刷新先探测安装情况：未安装的工具不启动进程、不读取数据，界面也不显示对应分组。
+    public async Task<UsageSnapshot> RefreshAsync(bool claudeLiveQuota, CancellationToken cancellationToken)
     {
         await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var quota = await _appServer.ReadRateLimitsAsync(cancellationToken).ConfigureAwait(false);
+            var (codexDetected, claudeDetected) = ProviderDetection.Detect();
+            var diagnostics = new List<string>();
+            var claude = claudeDetected
+                ? await _claudeQuota.ReadAsync(claudeLiveQuota, DateTimeOffset.UtcNow, diagnostics, cancellationToken).ConfigureAwait(false)
+                : ClaudeQuotaSnapshot.Empty;
             cancellationToken.ThrowIfCancellationRequested();
-            var diagnostics = new List<string>(quota.Diagnostics);
+            var showCodex = codexDetected || !claudeDetected;
+            var quota = showCodex
+                ? await _appServer.ReadRateLimitsAsync(cancellationToken).ConfigureAwait(false)
+                : new RateLimitParseResult(false, null, null, []);
+            cancellationToken.ThrowIfCancellationRequested();
+            diagnostics.InsertRange(0, quota.Diagnostics);
             var incoming = quota.Native;
-            var failed = !quota.IsAuthoritative;
-            if (!failed) { _lastSource = QuotaDataSource.OfficialAppServer; }
-            else
+            var failed = showCodex && !quota.IsAuthoritative;
+            if (showCodex && !failed) { _lastSource = QuotaDataSource.OfficialAppServer; }
+            else if (failed)
             {
                 var local = _localRateLimits.Read(DateTimeOffset.UtcNow, diagnostics);
                 // [AI修改] 旧本地事件不能覆盖更新的官方快照，不跨事件拼接。
@@ -42,8 +55,14 @@ public sealed class UsageSnapshotService : IDisposable
             var now = DateTimeOffset.Now;
             return new UsageSnapshot(now, windows.FiveHour, windows.SevenDay,
                 observed is null ? QuotaDataSource.Unavailable : _lastSource, observed,
-                _codexLocal.Read(now, diagnostics), _claudeLocal.Read(now, diagnostics), diagnostics)
-            { QuotaReadFailed = failed };
+                showCodex ? _codexLocal.Read(now, diagnostics) : null,
+                claudeDetected ? _claudeLocal.Read(now, diagnostics) : null, diagnostics)
+            {
+                QuotaReadFailed = failed,
+                ClaudeQuota = claude,
+                CodexDetected = codexDetected,
+                ClaudeDetected = claudeDetected,
+            };
         }
         finally { _refreshGate.Release(); }
     }
@@ -51,5 +70,6 @@ public sealed class UsageSnapshotService : IDisposable
     {
         // [AI修改] 退出只回收本应用CLI；异步finally仍可能释放信号量，不提前销毁。
         _appServer.Dispose();
+        _claudeQuota.Dispose();
     }
 }

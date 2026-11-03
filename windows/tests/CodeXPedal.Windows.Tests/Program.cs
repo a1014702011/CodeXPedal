@@ -88,6 +88,20 @@ var tests = new (string Name, Action Run)[]
     ("Token 计数器重置不重复", HandlesTokenCounterReset),
     ("本地文件读取冻结且有界", ReadsBoundedLocalText),
     ("超大统计文件明确拒绝", RejectsOversizedLocalText),
+    // [AI修改] Claude 额度：共享核心解析、状态栏桥接、实时接口开关、路径发现和双行任务栏。
+    ("Claude 状态栏额度双窗口", ParsesClaudeStatusLine),
+    ("Claude 官方接口ISO时间与超额截断", ParsesClaudeOAuthUsage),
+    ("Claude 缺失窗口失败关闭", RejectsClaudeMissingWindows),
+    ("Claude 状态栏钩子写缓存并输出", ClaudeHookWritesCache),
+    ("Claude 钩子无额度时不覆盖缓存", ClaudeHookKeepsCacheWithoutLimits),
+    ("Claude 读取较新缓存且失败保留", ClaudeReaderUsesNewerCache),
+    ("Claude 未开启实时不读取令牌", ClaudeLiveDisabledSkipsNetwork),
+    ("Claude 实时接口成功替换快照", ClaudeLiveReadsUsage),
+    ("Claude 过期令牌不发请求", ClaudeExpiredTokenSkipsNetwork),
+    ("Claude 桥接备份并恢复原状态栏", ClaudeBridgeRoundTrip),
+    ("Claude 路径发现顺序", ResolvesClaudeExecutable),
+    ("Claude 陈旧规则与 Codex 一致", ClaudeStalenessBoundary),
+    ("双行任务栏字号与宽度", ScalesDualTaskbarLayout),
 };
 
 var failures = new List<string>();
@@ -544,6 +558,188 @@ static async Task WriteFakeResponseAsync(object response)
     await Console.Out.FlushAsync();
 }
 
+// [AI修改] Claude 测试统一使用隔离目录，结束时只删除本次创建的 GUID 目录。
+static void WithTempDirectory(Action<string> test)
+{
+    var tempRoot = Environment.GetEnvironmentVariable("CODEXPEDAL_TEST_TEMP_ROOT") ?? @"F:\codex_tmp\codexpedal-tests";
+    var directory = Path.Combine(tempRoot, "claude-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(directory);
+    try { test(directory); }
+    finally { Directory.Delete(directory, recursive: true); }
+}
+
+static void ParsesClaudeStatusLine()
+{
+    var json = """{"rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1738425600},"seven_day":{"used_percentage":41.2,"resets_at":1738857600}}}""";
+    AssertEqual(0, SharedQuotaCore.ParseClaude(json, DateTimeOffset.UtcNow, out var native), "解析状态");
+    var (five, seven) = SharedQuotaCore.Windows(native);
+    AssertEqual(76.5D, five!.RemainingPercent, "5小时剩余");
+    AssertEqual("77%", UsageFormatter.Percent(five.RemainingPercent), "四舍五入");
+    AssertEqual(DateTimeOffset.FromUnixTimeSeconds(1738857600), seven!.ResetsAt, "7天重置时间");
+}
+
+static void ParsesClaudeOAuthUsage()
+{
+    var json = """{"five_hour":{"utilization":120.0,"resets_at":"2026-01-22T09:00:00Z"},"seven_day":{"utilization":8,"resets_at":null},"seven_day_opus":{"utilization":50}}""";
+    AssertEqual(0, SharedQuotaCore.ParseClaude(json, DateTimeOffset.UtcNow, out var native), "解析状态");
+    var (five, seven) = SharedQuotaCore.Windows(native);
+    AssertEqual(0D, five!.RemainingPercent, "超额剩余0");
+    AssertEqual(DateTimeOffset.Parse("2026-01-22T09:00:00Z"), five.ResetsAt, "ISO重置时间");
+    Assert(seven!.ResetsAt is null, "空重置时间不编造");
+    AssertEqual(92D, seven.RemainingPercent, "7天剩余");
+}
+
+static void RejectsClaudeMissingWindows()
+{
+    AssertEqual(2, SharedQuotaCore.ParseClaude("""{"cwd":"x"}""", DateTimeOffset.UtcNow, out _), "缺失窗口");
+    AssertEqual(1, SharedQuotaCore.ParseClaude("""{"five_hour":{"used_percentage":"7"}}""", DateTimeOffset.UtcNow, out _), "字符串百分比");
+}
+
+static void ClaudeHookWritesCache() => WithTempDirectory(directory =>
+{
+    var input = """{"session_id":"s","cwd":"C:/secret","rate_limits":{"five_hour":{"used_percentage":23.5},"seven_day":{"used_percentage":41.2}}}""";
+    var text = ClaudeStatusLineHook.Run(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(input)), directory, DateTimeOffset.UtcNow);
+    AssertEqual("Claude 剩余 5h 77% · 7d 59%", text, "状态栏文字");
+    var cache = File.ReadAllText(ClaudeStatusLineCache.PathFor(directory));
+    Assert(cache.Contains("rate_limits") && !cache.Contains("secret") && !cache.Contains("session_id"), "缓存只保存额度字段");
+    Assert(Directory.GetFiles(directory, "*.tmp").Length == 0, "不残留临时文件");
+});
+
+static void ClaudeHookKeepsCacheWithoutLimits() => WithTempDirectory(directory =>
+{
+    var path = ClaudeStatusLineCache.PathFor(directory);
+    File.WriteAllText(path, """{"rate_limits":{"seven_day":{"used_percentage":10}}}""");
+    var text = ClaudeStatusLineHook.Run(new MemoryStream("""{"cwd":"x"}"""u8.ToArray()), directory, DateTimeOffset.UtcNow);
+    Assert(text.Contains("--"), "无额度显示短横线");
+    Assert(File.ReadAllText(path).Contains("10"), "已有缓存不被覆盖");
+    AssertEqual("Claude 剩余 --", ClaudeStatusLineHook.Run(new MemoryStream("{"u8.ToArray()), directory, DateTimeOffset.UtcNow), "畸形输入不抛出");
+});
+
+static void ClaudeReaderUsesNewerCache() => WithTempDirectory(directory =>
+{
+    var path = ClaudeStatusLineCache.PathFor(directory);
+    File.WriteAllText(path, """{"rate_limits":{"five_hour":{"used_percentage":20},"seven_day":{"used_percentage":40}}}""");
+    var first = DateTimeOffset.UtcNow.AddSeconds(-30);
+    File.SetLastWriteTimeUtc(path, first.UtcDateTime);
+    using var reader = new ClaudeQuotaReader(new ClaudeOAuthUsageClient(new CountingHandler()), () => directory);
+    var diagnostics = new List<string>();
+    var snapshot = reader.ReadAsync(false, DateTimeOffset.UtcNow, diagnostics, CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(ClaudeQuotaSource.StatusLine, snapshot.Source, "来源");
+    AssertEqual(80D, snapshot.FiveHourQuota!.RemainingPercent, "5小时");
+    AssertEqual(first.ToUnixTimeSeconds(), snapshot.ObservedAt!.Value.ToUnixTimeSeconds(), "采样时间取缓存修改时间");
+    File.WriteAllText(path, "{broken");
+    File.SetLastWriteTimeUtc(path, first.AddSeconds(10).UtcDateTime);
+    var kept = reader.ReadAsync(false, DateTimeOffset.UtcNow, diagnostics, CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(80D, kept.FiveHourQuota!.RemainingPercent, "畸形新缓存保留旧值");
+    AssertEqual(first.ToUnixTimeSeconds(), kept.ObservedAt!.Value.ToUnixTimeSeconds(), "失败不更新时间");
+});
+
+static void ClaudeLiveDisabledSkipsNetwork() => WithTempDirectory(directory =>
+{
+    File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"claudeAiOauth":{"accessToken":"sk-test-token","expiresAt":32503680000000}}""");
+    var handler = new CountingHandler();
+    using var reader = new ClaudeQuotaReader(new ClaudeOAuthUsageClient(handler), () => directory);
+    var snapshot = reader.ReadAsync(false, DateTimeOffset.UtcNow, new List<string>(), CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(0, handler.Calls, "未开启实时不能发请求");
+    AssertEqual(ClaudeQuotaSource.Unavailable, snapshot.Source, "无缓存时不可用");
+});
+
+static void ClaudeLiveReadsUsage() => WithTempDirectory(directory =>
+{
+    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN"))) { return; }
+    File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"claudeAiOauth":{"accessToken":"sk-test-token","expiresAt":32503680000000}}""");
+    var handler = new CountingHandler { Body = """{"five_hour":{"utilization":30,"resets_at":"2026-11-03T12:00:00+00:00"},"seven_day":{"utilization":60,"resets_at":"2026-11-08T00:00:00Z"}}""" };
+    using var reader = new ClaudeQuotaReader(new ClaudeOAuthUsageClient(handler), () => directory);
+    var diagnostics = new List<string>();
+    var snapshot = reader.ReadAsync(true, DateTimeOffset.UtcNow, diagnostics, CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(1, handler.Calls, "请求一次");
+    AssertEqual("Bearer sk-test-token", handler.Authorization, "使用令牌");
+    AssertEqual(ClaudeQuotaSource.LiveOAuth, snapshot.Source, "来源");
+    AssertEqual(70D, snapshot.FiveHourQuota!.RemainingPercent, "5小时剩余");
+    Assert(!snapshot.ReadFailed && diagnostics.All(item => !item.Contains("sk-test")), "诊断不含令牌");
+    _ = reader.ReadAsync(true, DateTimeOffset.UtcNow.AddSeconds(5), diagnostics, CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(1, handler.Calls, "60秒内不重复请求");
+});
+
+static void ClaudeExpiredTokenSkipsNetwork() => WithTempDirectory(directory =>
+{
+    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN"))) { return; }
+    File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"claudeAiOauth":{"accessToken":"sk-old","expiresAt":1000}}""");
+    var handler = new CountingHandler();
+    using var reader = new ClaudeQuotaReader(new ClaudeOAuthUsageClient(handler), () => directory);
+    var diagnostics = new List<string>();
+    var snapshot = reader.ReadAsync(true, DateTimeOffset.UtcNow, diagnostics, CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(0, handler.Calls, "过期令牌不发请求");
+    Assert(snapshot.ReadFailed && diagnostics.Any(item => item.Contains("过期")), "提示过期");
+});
+
+static void ClaudeBridgeRoundTrip() => WithTempDirectory(directory =>
+{
+    var settingsPath = ClaudeStatusLineBridge.SettingsPath(directory);
+    File.WriteAllText(settingsPath, """{"model":"opus","statusLine":{"type":"command","command":"bash ~/.claude/mine.sh"}}""");
+    var exe = Path.Combine(directory, "app", "CodeXPedal.exe");
+    AssertEqual(ClaudeBridgeState.OtherCommand, ClaudeStatusLineBridge.GetState(directory, exe).State, "识别自定义状态栏");
+    ClaudeStatusLineBridge.Enable(directory, exe);
+    AssertEqual(ClaudeBridgeState.Enabled, ClaudeStatusLineBridge.GetState(directory, exe).State, "启用后");
+    var enabled = File.ReadAllText(settingsPath);
+    using (var parsed = JsonDocument.Parse(enabled))
+    {
+        var command = parsed.RootElement.GetProperty("statusLine").GetProperty("command").GetString()!;
+        Assert(parsed.RootElement.GetProperty("model").GetString() == "opus", "保留其他设置");
+        Assert(command.EndsWith(ClaudeStatusLineHook.Argument, StringComparison.Ordinal) && !command.Contains('\\'), "命令使用正斜杠路径");
+    }
+    AssertEqual(ClaudeBridgeState.EnabledOtherPath, ClaudeStatusLineBridge.GetState(directory, exe + "x").State, "程序移动后提示重新启用");
+    ClaudeStatusLineBridge.Enable(directory, exe);
+    ClaudeStatusLineBridge.Disable(directory);
+    var restored = File.ReadAllText(settingsPath);
+    Assert(restored.Contains("mine.sh") && !restored.Contains(ClaudeStatusLineHook.Argument), "停用后恢复原状态栏");
+    Assert(File.Exists(settingsPath + ".codexpedal.bak"), "首次修改前备份");
+    File.WriteAllText(settingsPath, "{}");
+    ClaudeStatusLineBridge.Enable(directory, exe);
+    ClaudeStatusLineBridge.Disable(directory);
+    Assert(!File.ReadAllText(settingsPath).Contains("statusLine"), "原本没有状态栏时停用即删除");
+});
+
+static void ResolvesClaudeExecutable() => WithTempDirectory(directory =>
+{
+    var home = Path.Combine(directory, "home");
+    var appData = Path.Combine(directory, "roaming");
+    var local = Path.Combine(directory, "local");
+    var env = new Dictionary<string, string?>();
+    Assert(ClaudeExecutableResolver.Resolve(name => env.GetValueOrDefault(name), home, appData, local) is null, "未安装");
+    var managed = Path.Combine(appData, "Claude", "claude-code", "2.1.300", "claude.exe");
+    Directory.CreateDirectory(Path.GetDirectoryName(managed)!);
+    File.WriteAllText(managed, string.Empty);
+    AssertEqual(Path.GetFullPath(managed), ClaudeExecutableResolver.Resolve(name => env.GetValueOrDefault(name), home, appData, local), "桌面版托管");
+    var native = Path.Combine(home, ".local", "bin", "claude.exe");
+    Directory.CreateDirectory(Path.GetDirectoryName(native)!);
+    File.WriteAllText(native, string.Empty);
+    AssertEqual(Path.GetFullPath(native), ClaudeExecutableResolver.Resolve(name => env.GetValueOrDefault(name), home, appData, local), "原生安装优先");
+    var explicitPath = Path.Combine(directory, "custom-claude.exe");
+    File.WriteAllText(explicitPath, string.Empty);
+    env[ClaudeExecutableResolver.PathVariable] = explicitPath;
+    AssertEqual(Path.GetFullPath(explicitPath), ClaudeExecutableResolver.Resolve(name => env.GetValueOrDefault(name), home, appData, local), "显式变量最优先");
+});
+
+static void ClaudeStalenessBoundary()
+{
+    var now = DateTimeOffset.UtcNow;
+    var window = new QuotaWindow(QuotaWindowKind.SevenDay, 10, RateLimitParser.SevenDayMinutes, null);
+    var snapshot = new ClaudeQuotaSnapshot(null, window, ClaudeQuotaSource.StatusLine, now, false);
+    Assert(!SharedQuotaCore.IsStale(snapshot, now.AddSeconds(179), 60), "179秒未过期");
+    Assert(SharedQuotaCore.IsStale(snapshot, now.AddSeconds(180), 60), "180秒过期");
+    Assert(SharedQuotaCore.IsStale(snapshot with { ReadFailed = true }, now, 60), "失败立即标旧值");
+}
+
+static void ScalesDualTaskbarLayout()
+{
+    AssertEqual(11.6D, TaskbarStripLayout.CalculateDualFontSize(40D), "40像素两行字号");
+    AssertEqual(10D, TaskbarStripLayout.CalculateDualFontSize(20D), "两行字号下限");
+    AssertEqual(14D, TaskbarStripLayout.CalculateDualFontSize(60D), "两行字号上限");
+    AssertEqual(320, TaskbarStripLayout.CalculatePhysicalWidth(400D, 1D), "单行宽度上限不变");
+    AssertEqual(402, TaskbarStripLayout.CalculatePhysicalWidth(400D, 1D, TaskbarStripLayout.MaximumDualPhysicalWidth), "两行宽度上限放宽");
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition)
@@ -557,5 +753,20 @@ static void AssertEqual<T>(T expected, T actual, string message)
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
     {
         throw new InvalidOperationException($"{message}：期望 {expected}，实际 {actual}");
+    }
+}
+
+// [AI修改] 假 HTTP 处理器：记录请求次数与授权头，不访问真实网络。
+sealed class CountingHandler : HttpMessageHandler
+{
+    public int Calls { get; private set; }
+    public string? Authorization { get; private set; }
+    public string Body { get; init; } = "{}";
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Calls++;
+        Authorization = request.Headers.Authorization?.ToString();
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(Body) });
     }
 }

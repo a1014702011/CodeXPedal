@@ -9,9 +9,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Deterministic>true</Deterministic>
     <!-- [AI修改] 新项目独立版本，不继承参考项目版本号。 -->
-    <Version>0.1.0-beta01</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.1.0.0</FileVersion>
+    <Version>0.2.0-beta01</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <Platforms>x64</Platforms>
     <!-- [AI修改] 统一生成 64 位进程，匹配 Windows 10/11 x64 和 winsqlite3。 -->

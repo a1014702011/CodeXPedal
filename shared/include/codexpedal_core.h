@@ -21,6 +21,7 @@ typedef struct PedalSnapshot {
 } PedalSnapshot;
 uint32_t pedal_abi_version(void);
 // [AI修改] mode=0 官方 result，mode=1 本地 rate_limits 桶；失败清空输出，禁止部分成功。
+// [AI修改] mode=2 Claude：statusLine 的 rate_limits 或官方 usage 响应（five_hour/seven_day），超过100%按100%。
 int32_t pedal_parse(const uint8_t *data, size_t length, double observed_at, uint32_t mode, PedalSnapshot *output);
 double pedal_remaining(double used_percent);
 uint32_t pedal_is_stale(const PedalSnapshot *snapshot, double now, double refresh_seconds, uint32_t failed);

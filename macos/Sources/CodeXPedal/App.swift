@@ -60,8 +60,15 @@ import Darwin
         // [AI修改] CLI 提前关闭管道时转为可处理的写入错误，不能因 SIGPIPE 直接崩溃。
         signal(SIGPIPE, SIG_IGN)
         let flags = CommandLine.arguments.dropFirst().filter { $0.hasPrefix("--") }
+        // [AI修改] 作为 Claude Code statusLine 命令被调用：读一次 stdin、写缓存、输出一行文字后立即退出，不启动界面。
+        if flags.first == ClaudeStatusLineHook.argument {
+            let input = (try? FileHandle.standardInput.read(upToCount: 1_048_577)) ?? Data()
+            let text = ClaudeStatusLineHook.run(input: input, configDirectory: ClaudeLocator.configDirectory())
+            FileHandle.standardOutput.write(Data(text.utf8))
+            return
+        }
         if flags.contains("--help") {
-            print("CodeXPedal：直接启动菜单栏与横条浮窗；--dump-json 只读查询官方额度。")
+            print("CodeXPedal：直接启动菜单栏与横条浮窗；--dump-json 只读查询官方额度；--claude-statusline 供 Claude Code 状态栏桥接调用。")
             return
         }
         guard flags.allSatisfy({ $0 == "--dump-json" }) else {
