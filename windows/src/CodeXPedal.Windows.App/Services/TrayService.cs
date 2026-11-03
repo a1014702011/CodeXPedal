@@ -10,10 +10,18 @@ public sealed class TrayService : IDisposable
 {
     private readonly Forms.NotifyIcon _notifyIcon;
 
-    public TrayService(Action show, Func<Task> refresh, Action details, Action settings, Action exit)
+    // [AI修改] 第一项随悬浮窗状态切换“显示/隐藏悬浮窗”，打开菜单时读取实际可见性。
+    public TrayService(Action show, Action hide, Func<bool> isFloatingVisible, Func<Task> refresh, Action details, Action settings, Action exit)
     {
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("显示悬浮窗", null, (_, _) => show());
+        var toggle = new Forms.ToolStripMenuItem("显示悬浮窗");
+        toggle.Click += (_, _) =>
+        {
+            if (isFloatingVisible()) { hide(); }
+            else { show(); }
+        };
+        menu.Items.Add(toggle);
+        menu.Opening += (_, _) => toggle.Text = isFloatingVisible() ? "隐藏悬浮窗" : "显示悬浮窗";
         menu.Items.Add("立即刷新", null, async (_, _) => await refresh());
         menu.Items.Add("详情", null, (_, _) => details());
         menu.Items.Add("设置", null, (_, _) => settings());

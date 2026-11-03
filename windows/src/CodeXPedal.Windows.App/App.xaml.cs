@@ -90,7 +90,8 @@ public partial class App : System.Windows.Application
         _floatingWindow = new FloatingWindow(_viewModel, SaveSettingsAsync, OpenSettings, OpenDetails, ExitApplication);
         _floatingWindow.RefreshRequested += async (_, _) => await RefreshNowAsync();
 
-        _tray = new TrayService(ShowFloatingWindow, RefreshNowAsync, OpenDetails, OpenSettings, ExitApplication);
+        _tray = new TrayService(ShowFloatingWindow, () => _floatingWindow?.Hide(), () => _floatingWindow?.IsVisible == true,
+            RefreshNowAsync, OpenDetails, OpenSettings, ExitApplication);
         _taskbarStrip = new TaskbarStripService(ShowFloatingWindow);
         ApplySettings(settings);
 
