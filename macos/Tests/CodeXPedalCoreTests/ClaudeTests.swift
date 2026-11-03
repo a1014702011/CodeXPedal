@@ -84,6 +84,28 @@ final class ClaudeTests: XCTestCase {
         guard case .failed(let message) = failing.read(liveEnabled: true, now: now, lastObserved: nil) else { return XCTFail("过期应失败") }
         XCTAssertTrue(message.contains("过期"))
     }
+    // [AI修改] 实时读取默认开启，但用户明确关闭后必须保持关闭。
+    func testLiveReadingDefaultsToOnAndKeepsUserChoice() {
+        XCTAssertTrue(ClaudeLivePreference.resolve(stored: nil))
+        XCTAssertTrue(ClaudeLivePreference.resolve(stored: true))
+        XCTAssertFalse(ClaudeLivePreference.resolve(stored: false))
+    }
+    // [AI修改] 拒绝钥匙串授权后不能每分钟重复弹窗，关闭实时读取后才恢复尝试。
+    func testKeychainDenialPausesLiveReadUntilReset() {
+        let attempts = Counter()
+        let dir: URL = directory
+        let reader = ClaudeQuotaReader(live: ClaudeLiveUsageClient(fetch: { _ in Data() }, tokenProvider: { _, _ in
+            attempts.increment(); throw QuotaReadError.claudeKeychainDenied
+        }), configDirectory: { dir })
+        let now = Date()
+        guard case .failed(let message) = reader.read(liveEnabled: true, now: now, lastObserved: nil) else { return XCTFail("拒绝应失败") }
+        XCTAssertTrue(message.contains("钥匙串"))
+        guard case .failed = reader.read(liveEnabled: true, now: now.addingTimeInterval(120), lastObserved: nil) else { return XCTFail("应保留错误") }
+        XCTAssertEqual(attempts.value, 1)
+        _ = reader.read(liveEnabled: false, now: now.addingTimeInterval(180), lastObserved: nil)
+        _ = reader.read(liveEnabled: true, now: now.addingTimeInterval(240), lastObserved: nil)
+        XCTAssertEqual(attempts.value, 2)
+    }
     func testExpiredCredentialFileIsRejectedWithoutToken() throws {
         guard ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"] == nil else { return }
         _ = try write(#"{"claudeAiOauth":{"accessToken":"sk-old","expiresAt":1000}}"#, ".credentials.json")

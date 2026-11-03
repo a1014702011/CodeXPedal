@@ -15,7 +15,7 @@ public enum QuotaDataSource
     LocalSession,
 }
 
-// [AI修改] Claude 额度来源：默认读取状态栏桥接缓存，用户在设置中显式开启后才调用官方实时接口。
+// [AI修改] Claude 额度来源：默认调用官方实时接口，状态栏桥接缓存作为备选。
 public enum ClaudeQuotaSource
 {
     Unavailable,

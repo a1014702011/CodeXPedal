@@ -95,6 +95,7 @@ var tests = new (string Name, Action Run)[]
     ("Claude 状态栏钩子写缓存并输出", ClaudeHookWritesCache),
     ("Claude 钩子无额度时不覆盖缓存", ClaudeHookKeepsCacheWithoutLimits),
     ("Claude 读取较新缓存且失败保留", ClaudeReaderUsesNewerCache),
+    ("Claude 实时读取默认开启且保留用户选择", ClaudeLiveDefaultsOn),
     ("Claude 未开启实时不读取令牌", ClaudeLiveDisabledSkipsNetwork),
     ("Claude 实时接口成功替换快照", ClaudeLiveReadsUsage),
     ("Claude 过期令牌不发请求", ClaudeExpiredTokenSkipsNetwork),
@@ -635,6 +636,15 @@ static void ClaudeReaderUsesNewerCache() => WithTempDirectory(directory =>
     AssertEqual(80D, kept.FiveHourQuota!.RemainingPercent, "畸形新缓存保留旧值");
     AssertEqual(first.ToUnixTimeSeconds(), kept.ObservedAt!.Value.ToUnixTimeSeconds(), "失败不更新时间");
 });
+
+// [AI修改] 实时读取默认开启：旧配置没有该字段时开启，用户保存过的关闭选择保持关闭。
+static void ClaudeLiveDefaultsOn()
+{
+    var options = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+    Assert(new AppSettings().ClaudeLiveQuota, "新配置默认开启");
+    Assert(System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}", options)!.ClaudeLiveQuota, "缺少字段时默认开启");
+    Assert(!System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{\"claudeLiveQuota\":false}", options)!.ClaudeLiveQuota, "用户关闭后保持关闭");
+}
 
 static void ClaudeLiveDisabledSkipsNetwork() => WithTempDirectory(directory =>
 {

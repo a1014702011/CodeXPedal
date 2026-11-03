@@ -79,7 +79,7 @@ import CodeXPedalCore
             }
             Text("可复用 Codex.app 内的官方 CLI，或选择已安装的 standalone／Homebrew CLI。需要先用官方 Codex 登录；本软件不会代替你安装或登录。")
                 .font(.caption).foregroundStyle(.secondary)
-            // [AI修改] Claude 额度：默认通过状态栏桥接（官方字段、不读凭据），实时读取需显式开启；单独分组避免超出视图构建上限。
+            // [AI修改] Claude 额度：默认实时读取，状态栏桥接作为备选并写明使用步骤；单独分组避免超出视图构建上限。
             VStack(alignment: .leading, spacing: 10) {
                 Divider()
                 Text("Claude 额度").font(.headline)
@@ -87,15 +87,16 @@ import CodeXPedalCore
                     Button(cliText.button) { if startClaudeSetup() { setupStarted = true } }.disabled(cliStatus == .ready)
                     Text(cliText.status).font(.caption).foregroundStyle(.secondary)
                 }
+                Toggle("实时读取 Claude 额度（默认，读取钥匙串中的 Claude 登录令牌）", isOn: $preferences.claudeLive)
+                Text("首次读取时系统会询问是否允许访问「Claude Code-credentials」；每分钟最多一次发送到 Anthropic 官方接口，不保存、不上传到其他地方。令牌过期时请打开一次 Claude Code。")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text("备选方式：Claude 状态栏桥接").font(.subheadline.weight(.semibold)).padding(.top, 4)
+                Text("不想授权读取令牌，或实时读取失败时使用，需要 Pro/Max 订阅：\n1. 点击下方按钮启用桥接，原状态栏会备份，停用后恢复。\n2. 在终端运行 claude 并发送一条消息；桌面端可能不会更新额度。\n3. 回到本程序等待下次刷新。之后只在发消息时更新，空闲约3分钟后数字带 ≈。\n如需完全不读取令牌，请同时关闭上方的实时读取。")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button(bridgeText.button) { toggleBridge() }.disabled(bridgeState == .settingsUnreadable)
                     Text(bridgeText.status).font(.caption).foregroundStyle(.secondary)
                 }
-                Text("桥接会把 Claude Code 的状态栏设为本程序，读取官方提供的5小时/7天额度，只在 Claude Code 发消息时更新；原状态栏会备份，停用后恢复。")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Toggle("实时读取 Claude 额度（读取钥匙串中的 Claude 登录令牌）", isOn: $preferences.claudeLive)
-                Text("默认关闭。开启后系统会询问是否允许访问「Claude Code-credentials」；每分钟最多一次发送到 Anthropic 官方接口，不保存、不上传到其他地方。")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             HStack { Spacer(); Button("应用并刷新", action: apply).keyboardShortcut(.defaultAction) }
         }.padding(24).frame(width: 470).fixedSize(horizontal: false, vertical: true)

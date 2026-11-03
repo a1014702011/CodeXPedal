@@ -5,7 +5,7 @@ public enum QuotaReadError: Error, LocalizedError {
     case invalidResponse, missingBucket, duplicateWindow, invalidPercent, cliMissing, invalidCLI
     case timeout, processExited, outputTooLarge, cancelled, serverRejected(Int)
     // [AI修改] Claude 额度相关错误，文案不回显令牌或原始响应。
-    case claudeMissing, claudeNoLogin, claudeTokenExpired, claudeUnauthorized, claudeRateLimited, claudeHTTP(Int), claudeNetwork
+    case claudeMissing, claudeNoLogin, claudeKeychainDenied, claudeTokenExpired, claudeUnauthorized, claudeRateLimited, claudeHTTP(Int), claudeNetwork
     public var errorDescription: String? {
         switch self {
         case .invalidResponse: return "官方额度响应格式无法识别，请检查CLI版本。"
@@ -21,6 +21,7 @@ public enum QuotaReadError: Error, LocalizedError {
         case .serverRejected(let code): return "官方CLI拒绝额度读取（错误码\(code)），请检查登录与版本。"
         case .claudeMissing: return "Claude 响应没有5小时或7天额度，本次未更新。"
         case .claudeNoLogin: return "未找到 Claude 订阅登录信息，请先用 Claude Code 登录 Pro/Max 账号。"
+        case .claudeKeychainDenied: return "未获得钥匙串授权，Claude 实时读取已暂停。重启 CodeXPedal 后可重新授权，或改用状态栏桥接。"
         case .claudeTokenExpired: return "Claude 登录令牌已过期，请打开一次 Claude Code 让其自动刷新。"
         case .claudeUnauthorized: return "Claude 登录令牌无效或已过期，请打开一次 Claude Code 后重试。"
         case .claudeRateLimited: return "Claude 额度接口请求过于频繁，稍后自动重试。"

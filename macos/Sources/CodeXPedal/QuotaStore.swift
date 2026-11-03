@@ -9,7 +9,7 @@ import CodeXPedalCore
     @Published var fontSize: Double { didSet { defaults.set(fontSize, forKey: "fontSize") } }
     @Published var refreshSeconds: Double { didSet { defaults.set(refreshSeconds, forKey: "refreshSeconds") } }
     @Published var cliPath: String { didSet { defaults.set(cliPath, forKey: "cliPath") } }
-    // [AI修改] 实时读取 Claude 额度需要读取钥匙串中的 Claude 登录令牌，默认关闭。
+    // [AI修改] 实时读取是默认的 Claude 额度来源，需要读取钥匙串中的 Claude 登录令牌；用户可在设置中关闭。
     @Published var claudeLive: Bool { didSet { defaults.set(claudeLive, forKey: "claudeLive") } }
     // [AI修改] 用户在“安装并登录 Claude Code”弹窗中选择“不再提示”后不再在启动时询问。
     @Published var claudeSetupDismissed: Bool { didSet { defaults.set(claudeSetupDismissed, forKey: "claudeSetupDismissed") } }
@@ -20,7 +20,7 @@ import CodeXPedalCore
         let interval = defaults.double(forKey: "refreshSeconds")
         refreshSeconds = [30.0, 60, 120, 300].contains(interval) ? interval : 60
         cliPath = defaults.string(forKey: "cliPath") ?? ""
-        claudeLive = defaults.bool(forKey: "claudeLive")
+        claudeLive = ClaudeLivePreference.resolve(stored: defaults.object(forKey: "claudeLive"))
         claudeSetupDismissed = defaults.bool(forKey: "claudeSetupDismissed")
     }
     var savedOrigin: NSPoint? {
@@ -83,7 +83,8 @@ struct ProviderRow: Identifiable {
         if isRefreshing { return "正在读取 Claude 额度…" }
         if let error = claudeState.errorMessage { return error }
         guard let snapshot = claudeState.snapshot else {
-            return preferences.claudeLive ? "等待 Claude 官方额度" : "尚无数据：请在设置中启用 Claude 状态栏桥接后在 Claude Code 发一条消息，或开启实时读取"
+            // [AI修改] 实时读取改为默认后，无数据时优先引导开启实时读取，桥接作为备选。
+            return preferences.claudeLive ? "等待 Claude 官方额度" : "尚无数据：请开启实时读取，或按设置页步骤使用状态栏桥接"
         }
         if snapshot.windows.isEmpty { return "Claude 未返回5小时或7天窗口" }
         if !claudeStale { return "Claude 额度" }

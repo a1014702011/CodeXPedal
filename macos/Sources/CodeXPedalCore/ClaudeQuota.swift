@@ -1,4 +1,4 @@
-// [AI修改] Claude 剩余额度：默认读取状态栏桥接缓存（官方 statusLine 字段，不读凭据）；用户显式开启后才读取本机登录令牌调用官方 usage 接口。
+// [AI修改] Claude 剩余额度：默认读取本机登录令牌调用官方 usage 接口；状态栏桥接缓存（官方 statusLine 字段，不读凭据）作为备选。
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -9,6 +9,11 @@ import Security
 
 public enum ClaudeQuotaSource: Sendable, Equatable {
     case unavailable, live, statusLine
+}
+
+// [AI修改] 实时读取默认开启（用户已确认）：没有保存过设置时开启，用户手动关闭后保持关闭。
+public enum ClaudeLivePreference {
+    public static func resolve(stored: Any?) -> Bool { stored as? Bool ?? true }
 }
 
 // [AI修改] 状态栏桥接缓存：只含 rate_limits，不含会话内容；采样时间取文件修改时间。
@@ -86,7 +91,10 @@ public struct ClaudeLiveUsageClient: Sendable {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "Claude Code-credentials",
                                     kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data, data.count <= 65_536 { raw = data }
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        // [AI修改] 区分“拒绝授权”和“未登录”；拒绝后由读取器暂停，避免默认开启时每分钟重复弹窗。
+        if status == errSecUserCanceled || status == errSecAuthFailed { throw QuotaReadError.claudeKeychainDenied }
+        if status == errSecSuccess, let data = item as? Data, data.count <= 65_536 { raw = data }
         #endif
         if raw == nil {
             let file = configDirectory.appendingPathComponent(".credentials.json")
@@ -150,6 +158,7 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
     private let configDirectory: @Sendable () -> URL
     private var lastLiveAttempt: Date?
     private var lastLiveError: String?
+    private var liveDenied = false
 
     public init(live: ClaudeLiveUsageClient = ClaudeLiveUsageClient(), configDirectory: (@Sendable () -> URL)? = nil) {
         self.live = live
@@ -157,12 +166,14 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
     }
 
     // [AI修改] 刚完成登录时立即允许下一次实时读取，不等 60 秒节流。
-    public func resetLiveThrottle() { lock.lock(); lastLiveAttempt = nil; lastLiveError = nil; lock.unlock() }
+    public func resetLiveThrottle() { lock.lock(); lastLiveAttempt = nil; lastLiveError = nil; liveDenied = false; lock.unlock() }
 
     public func read(liveEnabled: Bool, now: Date, lastObserved: Date?) -> ClaudeReadOutcome {
         lock.lock(); defer { lock.unlock() }
         let directory = configDirectory()
-        if liveEnabled {
+        // [AI修改] 钥匙串被拒绝后暂停到下次启动或用户关闭实时读取，期间继续接受状态栏桥接数据。
+        if !liveEnabled { liveDenied = false }
+        if liveEnabled, !liveDenied {
             if lastLiveAttempt.map({ now.timeIntervalSince($0) >= 60 || $0 > now }) ?? true {
                 lastLiveAttempt = now
                 do {
@@ -171,6 +182,7 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
                     return .updated(snapshot, .live)
                 } catch {
                     lastLiveError = (error as? QuotaReadError)?.localizedDescription ?? "Claude 额度读取失败。"
+                    if case QuotaReadError.claudeKeychainDenied = error { liveDenied = true }
                 }
             }
         }

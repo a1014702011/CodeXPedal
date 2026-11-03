@@ -1,4 +1,4 @@
-// [AI修改] Claude 剩余额度读取：默认只读状态栏桥接缓存；用户显式开启后才读取本机登录令牌调用官方 usage 接口。
+// [AI修改] Claude 剩余额度读取：默认读取本机登录令牌调用官方 usage 接口；状态栏桥接缓存（不读凭据）作为备选。
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -221,7 +221,7 @@ public sealed class ClaudeQuotaReader : IDisposable
         {
             if (!liveEnabled)
             {
-                diagnostics.Add("Claude 额度：尚无数据。请在设置中启用“Claude 状态栏桥接”后在 Claude Code 里发一条消息，或开启实时读取。");
+                diagnostics.Add("Claude 额度：尚无数据。请开启实时读取，或按设置页步骤使用状态栏桥接。");
             }
 
             return ClaudeQuotaSnapshot.Empty with { ReadFailed = failed };

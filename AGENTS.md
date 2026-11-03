@@ -6,9 +6,9 @@
 - Windows：windows/src/原生WPF与任务栏；Mac：macos/Sources/原生菜单栏与横条。宿主只做ABI、CLI/进程、设置与系统适配，不再复制业务解析。
 - 写入前给方案并取得确认；保留无关改动、编码/BOM与CRLF。新改代码加适度中文[AI修改]注释，日志中文，Git提交中文。
 - 正式需求：实际300/10080分钟窗口决定显示，不猜订阅；无月额度。整份更新、失败保留原值/原时间，所有入口共用陈旧标记。
-- 不读取CLI凭据、不自动登录/安装、不上传账户和用量、不恢复旧仪表盘或旧资源。例外（用户已确认）：Claude“实时读取”默认关闭，用户显式开启后才只读Claude登录令牌并仅发往Anthropic官方usage接口，不保存、不刷新令牌。
+- 不读取CLI凭据、不自动登录/安装、不上传账户和用量、不恢复旧仪表盘或旧资源。例外（用户已确认）：Claude“实时读取”默认开启，用户可在设置中关闭，关闭后保持关闭；只读Claude登录令牌并仅发往Anthropic官方usage接口，不保存、不刷新令牌；macOS拒绝钥匙串授权后暂停，不重复弹窗。
 - Claude Code安装/登录（用户已确认）：检测到在用Claude但未装/未登录时启动询问一次，用户点击后在可见终端执行官方安装脚本与claude auth login，浏览器授权由用户完成；登录成功后自动开启Claude实时读取。不得静默安装、不得代填账号。
-- Claude：默认用状态栏桥接读取官方statusLine rate_limits；只在用户点击时修改~/.claude/settings.json并备份原statusLine。两家都装才同时显示，只装一个只显示一个。
+- Claude：默认用实时读取；状态栏桥接读取官方statusLine rate_limits作为备选，设置页须写明使用步骤；只在用户点击时修改~/.claude/settings.json并备份原statusLine。两家都装才同时显示，只装一个只显示一个。
 - Windows保留仅任务栏模式；Mac横条只显示额度和右侧HH:mm:ss，20–42pt，支持仅菜单栏。无新视觉方向调整。
 - 测试：cargo test --manifest-path shared/Cargo.toml --locked；Windows scripts/build.ps1；Mac make test / make build / make verify。测试调用真实共享库。
 - 内存/生命周期：输出、缓存、遍历、等待必须有界；报告整个生产目录风险清单，静态检查不能代替运行或安全审计。

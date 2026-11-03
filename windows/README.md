@@ -8,7 +8,7 @@
 
 额度、5小时/7天识别、剩余计算和旧快照判断均来自shared/真实Rust DLL，不再维护C#重复解析。失败不刷新采样时间，所有显示入口用≈标识旧值。Windows本地历史兜底不是实时，缺失为--。Token/任务统计为本机可选估算，与官方额度不同。
 
-Claude：自动查找Claude Code（CODEXPEDAL_CLAUDE_PATH、%USERPROFILE%\.local\bin、npm、WinGet、%APPDATA%\Claude\claude-code版本目录、PATH），有CLI或配置目录即显示Claude分组；两家都装时悬浮窗两行、任务栏上下两行，托盘提示两行。未安装或未登录Claude Code时启动询问一次，“安装并登录”会打开PowerShell窗口执行官方`irm https://claude.ai/install.ps1 | iex`与`claude auth login`，浏览器授权后自动开启实时读取；设置页也有同一按钮。额度默认来自“Claude状态栏桥接”（设置中启用，CodeXPedal.exe --claude-statusline作为statusLine命令，只写rate_limits缓存，原配置备份可恢复）；“实时读取”默认关闭，开启后读取%USERPROFILE%\.claude\.credentials.json令牌调用官方usage接口，每分钟最多一次，过期不代刷新。
+Claude：自动查找Claude Code（CODEXPEDAL_CLAUDE_PATH、%USERPROFILE%\.local\bin、npm、WinGet、%APPDATA%\Claude\claude-code版本目录、PATH），有CLI或配置目录即显示Claude分组；两家都装时悬浮窗两行、任务栏上下两行，托盘提示两行。未安装或未登录Claude Code时启动询问一次，“安装并登录”会打开PowerShell窗口执行官方`irm https://claude.ai/install.ps1 | iex`与`claude auth login`，浏览器授权后自动开启实时读取；设置页也有同一按钮。额度默认来自“实时读取”：读取%USERPROFILE%\.claude\.credentials.json令牌调用官方usage接口，每分钟最多一次，过期不代刷新，可在设置中关闭；“Claude状态栏桥接”作为备选（设置中启用后需在终端版Claude Code发消息，CodeXPedal.exe --claude-statusline作为statusLine命令，只写rate_limits缓存，原配置备份可恢复）。
 
 保留任务栏自适应字号、紧凑/完整浮窗、仅任务栏、详情与设置。任务栏/DPI/Explorer退出空间恢复仍需真实系统验收。
 

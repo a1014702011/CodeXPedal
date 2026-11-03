@@ -16,8 +16,8 @@ public sealed record AppSettings
 
     public int RefreshIntervalSeconds { get; init; } = 60;
 
-    // [AI修改] 实时读取 Claude 额度需要读取本机 Claude 登录令牌，必须由用户显式开启，默认关闭。
-    public bool ClaudeLiveQuota { get; init; }
+    // [AI修改] 实时读取是默认的 Claude 额度来源（用户已确认），需要读取本机 Claude 登录令牌；配置中已保存的选择保持不变。
+    public bool ClaudeLiveQuota { get; init; } = true;
 
     // [AI修改] 用户在“安装并登录 Claude Code”弹窗中选择“不再提示”后不再在启动时询问。
     public bool ClaudeSetupPromptDismissed { get; init; }
