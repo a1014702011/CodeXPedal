@@ -233,5 +233,8 @@ public sealed class ClaudeQuotaReader : IDisposable
         return new ClaudeQuotaSnapshot(windows.FiveHour, windows.SevenDay, source, observed, failed);
     }
 
+    // [AI修改] 刚完成登录时立即允许下一次实时读取，不等 60 秒节流。
+    public void ResetLiveThrottle() => _lastLiveAttempt = DateTimeOffset.MinValue;
+
     public void Dispose() => _live.Dispose();
 }

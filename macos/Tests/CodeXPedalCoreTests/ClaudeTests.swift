@@ -109,6 +109,18 @@ final class ClaudeTests: XCTestCase {
         try ClaudeStatusLineBridge.disable(configDirectory: directory)
         XCTAssertEqual(ClaudeStatusLineBridge.state(configDirectory: directory, executable: exe), .notConfigured)
     }
+    func testClaudeCliStatusAndScript() throws {
+        let env: [String: String] = [:]
+        XCTAssertEqual(ClaudeCliSetup.status(executable: nil, configDirectory: directory, environment: env, keychainHasItem: { true }), .notInstalled)
+        let exe = URL(fileURLWithPath: "/usr/local/bin/claude")
+        XCTAssertEqual(ClaudeCliSetup.status(executable: exe, configDirectory: directory, environment: env, keychainHasItem: { false }), .notLoggedIn)
+        XCTAssertEqual(ClaudeCliSetup.status(executable: exe, configDirectory: directory, environment: env, keychainHasItem: { true }), .ready)
+        _ = try write(#"{"claudeAiOauth":{"accessToken":"x"}}"#, ".credentials.json")
+        XCTAssertEqual(ClaudeCliSetup.status(executable: exe, configDirectory: directory, environment: env, keychainHasItem: { false }), .ready)
+        let fresh = ClaudeCliSetup.buildScript(executable: nil)
+        XCTAssertTrue(fresh.contains(ClaudeCliSetup.installCommand) && fresh.contains("auth login") && fresh.contains("CLAUDE=''"))
+        XCTAssertTrue(ClaudeCliSetup.buildScript(executable: "/Users/o'neil/bin/claude").contains(#"CLAUDE='/Users/o'\''neil/bin/claude'"#))
+    }
     func testClaudeLocatorOrder() throws {
         let home = directory.appendingPathComponent("home").path
         XCTAssertNil(ClaudeLocator.resolve(environment: [:], home: home))

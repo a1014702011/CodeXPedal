@@ -13,6 +13,7 @@ public sealed class UsageSnapshotService : IDisposable
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private NativeQuotaSnapshot _lastQuota;
     private QuotaDataSource _lastSource;
+    private bool _resetClaudeThrottle;
 
     public Task<UsageSnapshot> RefreshAsync(CancellationToken cancellationToken) => RefreshAsync(false, cancellationToken);
 
@@ -22,6 +23,7 @@ public sealed class UsageSnapshotService : IDisposable
         await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (Interlocked.Exchange(ref _resetClaudeThrottle, false)) { _claudeQuota.ResetLiveThrottle(); }
             var (codexDetected, claudeDetected) = ProviderDetection.Detect();
             var diagnostics = new List<string>();
             var claude = claudeDetected
@@ -66,6 +68,9 @@ public sealed class UsageSnapshotService : IDisposable
         }
         finally { _refreshGate.Release(); }
     }
+    // [AI修改] Claude 登录完成后由界面调用，使下一次刷新立即读取实时额度；只置标志，实际重置在刷新锁内完成，避免跨线程改时间。
+    public void ResetClaudeLiveThrottle() => Volatile.Write(ref _resetClaudeThrottle, true);
+
     public void Dispose()
     {
         // [AI修改] 退出只回收本应用CLI；异步finally仍可能释放信号量，不提前销毁。

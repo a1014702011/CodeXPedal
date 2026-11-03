@@ -19,6 +19,9 @@ public sealed record AppSettings
     // [AI修改] 实时读取 Claude 额度需要读取本机 Claude 登录令牌，必须由用户显式开启，默认关闭。
     public bool ClaudeLiveQuota { get; init; }
 
+    // [AI修改] 用户在“安装并登录 Claude Code”弹窗中选择“不再提示”后不再在启动时询问。
+    public bool ClaudeSetupPromptDismissed { get; init; }
+
     public double WindowLeft { get; init; } = double.NaN;
 
     public double WindowTop { get; init; } = double.NaN;

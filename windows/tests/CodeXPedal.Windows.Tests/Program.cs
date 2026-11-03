@@ -102,6 +102,8 @@ var tests = new (string Name, Action Run)[]
     ("Claude 路径发现顺序", ResolvesClaudeExecutable),
     ("Claude 陈旧规则与 Codex 一致", ClaudeStalenessBoundary),
     ("双行任务栏字号与宽度", ScalesDualTaskbarLayout),
+    ("Claude Code 安装登录状态判断", DetectsClaudeCliStatus),
+    ("Claude Code 安装脚本路径转义", BuildsClaudeSetupScript),
 };
 
 var failures = new List<string>();
@@ -729,6 +731,26 @@ static void ClaudeStalenessBoundary()
     Assert(!SharedQuotaCore.IsStale(snapshot, now.AddSeconds(179), 60), "179秒未过期");
     Assert(SharedQuotaCore.IsStale(snapshot, now.AddSeconds(180), 60), "180秒过期");
     Assert(SharedQuotaCore.IsStale(snapshot with { ReadFailed = true }, now, 60), "失败立即标旧值");
+}
+
+static void DetectsClaudeCliStatus() => WithTempDirectory(directory =>
+{
+    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN"))) { return; }
+    AssertEqual(ClaudeCliStatus.NotInstalled, ClaudeCliSetup.GetStatus(null, directory), "未找到 CLI");
+    var exe = Path.Combine(directory, "claude.exe");
+    AssertEqual(ClaudeCliStatus.NotLoggedIn, ClaudeCliSetup.GetStatus(exe, directory), "无登录文件");
+    File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"other":1}""");
+    AssertEqual(ClaudeCliStatus.NotLoggedIn, ClaudeCliSetup.GetStatus(exe, directory), "登录文件无令牌");
+    File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"claudeAiOauth":{"accessToken":"x"}}""");
+    AssertEqual(ClaudeCliStatus.Ready, ClaudeCliSetup.GetStatus(exe, directory), "已登录");
+});
+
+static void BuildsClaudeSetupScript()
+{
+    var fresh = ClaudeCliSetup.BuildScript(null);
+    Assert(fresh.Contains(ClaudeCliSetup.InstallCommand) && fresh.Contains("auth login") && fresh.Contains("$claude = ''"), "未安装时先安装再登录");
+    var known = ClaudeCliSetup.BuildScript(@"C:\Users\o'neil\.local\bin\claude.exe");
+    Assert(known.Contains(@"$claude = 'C:\Users\o''neil\.local\bin\claude.exe'"), "路径单引号转义");
 }
 
 static void ScalesDualTaskbarLayout()

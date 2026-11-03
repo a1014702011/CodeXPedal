@@ -29,6 +29,9 @@ public partial class App : System.Windows.Application
     private bool? _appliedTaskbarOnlyMode;
     private bool _isExiting;
     private bool _appliedClaudeLiveQuota;
+    // [AI修改] 安装/登录 Claude Code 后轮询登录状态，最多 10 分钟。
+    private readonly DispatcherTimer _claudeSetupTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private DateTimeOffset _claudeSetupDeadline;
 
     public App()
     {
@@ -109,7 +112,86 @@ public partial class App : System.Windows.Application
             _ = Dispatcher.BeginInvoke(OpenDetails);
         }
 #endif
+        _claudeSetupTimer.Tick += async (_, _) => await CheckClaudeSetupAsync();
+        // [AI修改] 在用 Claude（有配置目录或桌面版）但 Claude Code 未安装/未登录时，启动后询问一次。
+        if (claudeDetected && !settings.ClaudeSetupPromptDismissed
+#if DEBUG
+            && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CODEXPEDAL_UI_CAPTURE"))
+#endif
+            )
+        {
+            _ = Dispatcher.BeginInvoke(PromptClaudeSetup, DispatcherPriority.ApplicationIdle);
+        }
+
         await RefreshNowAsync();
+    }
+
+    private void PromptClaudeSetup()
+    {
+        var status = ClaudeCliSetup.GetStatus();
+        if (status == ClaudeCliStatus.Ready || _viewModel is null || _isExiting)
+        {
+            return;
+        }
+
+        var dialog = new ClaudeSetupWindow(status);
+        dialog.ShowDialog();
+        switch (dialog.Choice)
+        {
+            case ClaudeSetupChoice.Install:
+                StartClaudeSetup();
+                break;
+            case ClaudeSetupChoice.Never:
+                _viewModel.ApplySettings(_viewModel.Settings with { ClaudeSetupPromptDismissed = true });
+                break;
+        }
+    }
+
+    // [AI修改] 打开可见的安装/登录窗口并开始轮询；设置页按钮与启动弹窗共用此入口。
+    private bool StartClaudeSetup()
+    {
+        try
+        {
+            ClaudeCliSetup.Launch();
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            System.Windows.MessageBox.Show(
+                $"无法打开 PowerShell 安装窗口：{exception.Message}\n\n也可以手动在 PowerShell 中运行：\n{ClaudeCliSetup.InstallCommand}\n然后运行 claude auth login",
+                "CodeXPedal", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        _claudeSetupDeadline = DateTimeOffset.UtcNow.AddMinutes(10);
+        _claudeSetupTimer.Start();
+        return true;
+    }
+
+    // [AI修改] 发现登录完成后自动开启实时读取并立即刷新；超时只停止轮询，不弹错误。
+    private async Task CheckClaudeSetupAsync()
+    {
+        if (_viewModel is null || DateTimeOffset.UtcNow > _claudeSetupDeadline)
+        {
+            _claudeSetupTimer.Stop();
+            return;
+        }
+
+        if (ClaudeCliSetup.GetStatus() != ClaudeCliStatus.Ready)
+        {
+            return;
+        }
+
+        _claudeSetupTimer.Stop();
+        _snapshotService.ResetClaudeLiveThrottle();
+        if (_viewModel.Settings.ClaudeLiveQuota)
+        {
+            await RefreshNowAsync();
+        }
+        else
+        {
+            // 设置变化处理中会保存并立即刷新。
+            _viewModel.ApplySettings(_viewModel.Settings with { ClaudeLiveQuota = true });
+        }
     }
 
     private void RunClaudeStatusLineHook()
@@ -152,6 +234,7 @@ public partial class App : System.Windows.Application
     {
         _lifetime.Cancel();
         _refreshTimer.Stop();
+        _claudeSetupTimer.Stop();
         _taskbarStrip?.Dispose();
         _tray?.Dispose();
         _snapshotService.Dispose();
@@ -329,7 +412,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var window = new SettingsWindow(_viewModel.Settings);
+        var window = new SettingsWindow(_viewModel.Settings, StartClaudeSetup);
         AttachOwner(window);
         if (window.ShowDialog() == true)
         {

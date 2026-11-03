@@ -156,6 +156,9 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
         self.configDirectory = configDirectory ?? { ClaudeLocator.configDirectory() }
     }
 
+    // [AI修改] 刚完成登录时立即允许下一次实时读取，不等 60 秒节流。
+    public func resetLiveThrottle() { lock.lock(); lastLiveAttempt = nil; lastLiveError = nil; lock.unlock() }
+
     public func read(liveEnabled: Bool, now: Date, lastObserved: Date?) -> ClaudeReadOutcome {
         lock.lock(); defer { lock.unlock() }
         let directory = configDirectory()

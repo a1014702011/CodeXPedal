@@ -25,6 +25,32 @@ import Darwin
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         store.start()
+        // [AI修改] 在用 Claude（有配置目录或桌面版）但 Claude Code 未安装/未登录时，启动后询问一次。
+        if store.claudeDetected, !preferences.claudeSetupDismissed {
+            DispatchQueue.main.async { [weak self] in self?.promptClaudeSetup() }
+        }
+    }
+    private func promptClaudeSetup() {
+        let status = ClaudeCliSetup.status()
+        guard status != .ready, !terminating else { return }
+        let installed = status == .notLoggedIn
+        let alert = NSAlert()
+        alert.messageText = installed ? "Claude Code 尚未登录" : "未安装 Claude Code"
+        alert.informativeText = (installed
+            ? "检测到已安装 Claude Code，但还没有登录，所以暂时无法显示 Claude 剩余额度。"
+            : "检测到你在使用 Claude，但本机没有安装 Claude Code（命令行版），所以暂时无法显示 Claude 剩余额度。")
+            + "\n\n点击后会打开“终端”" + (installed ? "" : "，用官方脚本安装 Claude Code")
+            + "，随后在浏览器中打开 Claude 登录页，你只需点击“授权”。登录成功后会自动开启实时读取并显示5小时/7天额度。"
+            + "\n\n需要 Claude Pro 或 Max 订阅。本软件不会代填账号或读取密码。"
+        alert.addButton(withTitle: installed ? "登录" : "安装并登录")
+        alert.addButton(withTitle: "以后再说")
+        alert.addButton(withTitle: "不再提示")
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: store.startClaudeSetup()
+        case .alertThirdButtonReturn: preferences.claudeSetupDismissed = true
+        default: break
+        }
     }
     private func updatePresentation() { guard !terminating else { return }; statusBar.update(); floating.updateVisibility() }
     @objc private func willSleep() { store.stop() }

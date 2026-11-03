@@ -37,7 +37,19 @@ import CodeXPedalCore
 @MainActor struct PreferencesView: View {
     @ObservedObject var preferences: Preferences
     let apply: () -> Void
+    // [AI修改] 设置页“安装并登录 Claude Code”按钮复用存储层的同一入口。
+    let startClaudeSetup: () -> Bool
     @State private var bridgeState: ClaudeBridgeState = .notConfigured
+    @State private var cliStatus: ClaudeCliStatus = .notInstalled
+    @State private var setupStarted = false
+    private var cliText: (button: String, status: String) {
+        if setupStarted { return ("安装并登录 Claude Code", "已打开“终端”，请在浏览器中授权") }
+        switch cliStatus {
+        case .ready: return ("Claude Code 已就绪", "已安装并登录")
+        case .notLoggedIn: return ("登录 Claude Code", "已安装，未登录")
+        case .notInstalled: return ("安装并登录 Claude Code", "未安装")
+        }
+    }
     private var executable: URL { Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]) }
     private var bridgeText: (button: String, status: String) {
         switch bridgeState {
@@ -72,6 +84,10 @@ import CodeXPedalCore
                 Divider()
                 Text("Claude 额度").font(.headline)
                 HStack {
+                    Button(cliText.button) { if startClaudeSetup() { setupStarted = true } }.disabled(cliStatus == .ready)
+                    Text(cliText.status).font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
                     Button(bridgeText.button) { toggleBridge() }.disabled(bridgeState == .settingsUnreadable)
                     Text(bridgeText.status).font(.caption).foregroundStyle(.secondary)
                 }
@@ -83,7 +99,10 @@ import CodeXPedalCore
             }
             HStack { Spacer(); Button("应用并刷新", action: apply).keyboardShortcut(.defaultAction) }
         }.padding(24).frame(width: 470).fixedSize(horizontal: false, vertical: true)
-        .onAppear { bridgeState = ClaudeStatusLineBridge.state(configDirectory: ClaudeLocator.configDirectory(), executable: executable) }
+        .onAppear {
+            bridgeState = ClaudeStatusLineBridge.state(configDirectory: ClaudeLocator.configDirectory(), executable: executable)
+            cliStatus = ClaudeCliSetup.status()
+        }
     }
     // [AI修改] 替换用户自定义状态栏前必须明确确认；失败时提示原因且不做部分修改。
     private func toggleBridge() {
@@ -123,7 +142,8 @@ import CodeXPedalCore
         show(details)
     }
     func showSettings() {
-        if settings == nil { settings = makeWindow("CodeXPedal · 设置", view: PreferencesView(preferences: preferences, apply: { [weak self] in self?.store.start() })) }
+        if settings == nil { settings = makeWindow("CodeXPedal · 设置", view: PreferencesView(preferences: preferences, apply: { [weak self] in self?.store.start() },
+                                                                                 startClaudeSetup: { [weak self] in self?.store.startClaudeSetup() ?? false })) }
         show(settings)
     }
     private func makeWindow<Content: View>(_ title: String, view: Content) -> NSWindow {

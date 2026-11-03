@@ -10,11 +10,13 @@ namespace CodeXPedal.Windows.App.Views;
 public partial class SettingsWindow : Window
 {
     private readonly AppSettings _original;
+    private readonly Func<bool>? _startClaudeSetup;
 
-    public SettingsWindow(AppSettings settings)
+    public SettingsWindow(AppSettings settings, Func<bool>? startClaudeSetup = null)
     {
         InitializeComponent();
         _original = settings;
+        _startClaudeSetup = startClaudeSetup;
         Result = settings;
         CompactModeCheckBox.IsChecked = settings.CompactMode;
         AlwaysOnTopCheckBox.IsChecked = settings.AlwaysOnTop;
@@ -25,6 +27,7 @@ public partial class SettingsWindow : Window
         RefreshIntervalTextBox.Text = settings.RefreshIntervalSeconds.ToString(CultureInfo.InvariantCulture);
         ClaudeLiveQuotaCheckBox.IsChecked = settings.ClaudeLiveQuota;
         RefreshClaudeBridgeState();
+        RefreshClaudeCliState();
 #if DEBUG
         // [AI修改] DEBUG 验收可渲染真实设置窗口，避免无边框 WPF 窗口无法被外部截图工具捕获。
         var capturePath = Environment.GetEnvironmentVariable("CODEXPEDAL_SETTINGS_CAPTURE");
@@ -68,6 +71,29 @@ public partial class SettingsWindow : Window
     private void TaskbarStripCheckBox_Unchecked(object sender, RoutedEventArgs e) => TaskbarOnlyModeCheckBox.IsChecked = false;
 
     private void CancelButton_Click(object sender, RoutedEventArgs e) => DialogResult = false;
+
+    // [AI修改] 显示 Claude Code 安装/登录状态；已就绪时按钮不可用。
+    private void RefreshClaudeCliState()
+    {
+        var status = ClaudeCliSetup.GetStatus();
+        (ClaudeCliButton.Content, ClaudeCliStateText.Text) = status switch
+        {
+            Core.Services.ClaudeCliStatus.Ready => ("Claude Code 已就绪", "已安装并登录"),
+            Core.Services.ClaudeCliStatus.NotLoggedIn => ("登录 Claude Code", "已安装，未登录"),
+            _ => ("安装并登录 Claude Code", "未安装"),
+        };
+        ClaudeCliButton.IsEnabled = status != Core.Services.ClaudeCliStatus.Ready && _startClaudeSetup is not null;
+    }
+
+    // [AI修改] 打开安装/登录窗口后同时勾选实时读取，避免保存设置时把自动开启的状态覆盖掉。
+    private void ClaudeCliButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_startClaudeSetup?.Invoke() == true)
+        {
+            ClaudeLiveQuotaCheckBox.IsChecked = true;
+            ClaudeCliStateText.Text = "已打开安装/登录窗口，请在浏览器中授权";
+        }
+    }
 
     // [AI修改] 桥接状态即时读取 Claude settings.json，按钮文字随状态切换“启用/停用/重新启用”。
     private void RefreshClaudeBridgeState()

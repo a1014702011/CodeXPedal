@@ -4,7 +4,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="CodeXPedal 设置"
         Width="430"
-        Height="690"
+        Height="730"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Background="#141B23">
@@ -44,6 +44,11 @@
 
             <!-- [AI修改] Claude 额度：默认通过状态栏桥接获取（官方字段、不读凭据），实时读取需显式开启。 -->
             <TextBlock Text="Claude 额度" FontSize="15" FontWeight="SemiBold" Margin="0,14,0,8" />
+            <!-- [AI修改] 一键安装并登录 Claude Code（官方脚本 + 浏览器授权）。 -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="ClaudeCliButton" Click="ClaudeCliButton_Click" MinWidth="150" />
+                <TextBlock x:Name="ClaudeCliStateText" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11" TextWrapping="Wrap" MaxWidth="200" Foreground="{StaticResource SecondaryTextBrush}" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <Button x:Name="ClaudeBridgeButton" Click="ClaudeBridgeButton_Click" MinWidth="150" />
                 <TextBlock x:Name="ClaudeBridgeStatus" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11" TextWrapping="Wrap" MaxWidth="200" Foreground="{StaticResource SecondaryTextBrush}" />

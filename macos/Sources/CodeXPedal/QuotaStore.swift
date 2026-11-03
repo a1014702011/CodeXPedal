@@ -11,6 +11,8 @@ import CodeXPedalCore
     @Published var cliPath: String { didSet { defaults.set(cliPath, forKey: "cliPath") } }
     // [AI修改] 实时读取 Claude 额度需要读取钥匙串中的 Claude 登录令牌，默认关闭。
     @Published var claudeLive: Bool { didSet { defaults.set(claudeLive, forKey: "claudeLive") } }
+    // [AI修改] 用户在“安装并登录 Claude Code”弹窗中选择“不再提示”后不再在启动时询问。
+    @Published var claudeSetupDismissed: Bool { didSet { defaults.set(claudeSetupDismissed, forKey: "claudeSetupDismissed") } }
     init() {
         menuOnly = defaults.bool(forKey: "menuOnly")
         let font = defaults.double(forKey: "fontSize")
@@ -19,6 +21,7 @@ import CodeXPedalCore
         refreshSeconds = [30.0, 60, 120, 300].contains(interval) ? interval : 60
         cliPath = defaults.string(forKey: "cliPath") ?? ""
         claudeLive = defaults.bool(forKey: "claudeLive")
+        claudeSetupDismissed = defaults.bool(forKey: "claudeSetupDismissed")
     }
     var savedOrigin: NSPoint? {
         guard defaults.object(forKey: "panelX") != nil, defaults.object(forKey: "panelY") != nil else { return nil }
@@ -55,6 +58,8 @@ struct ProviderRow: Identifiable {
     private var timer: Timer?
     private var client: CodexRPCClient?
     private let claudeReader = ClaudeQuotaReader()
+    private var claudeSetupTimer: Timer?
+    private var claudeSetupDeadline = Date.distantPast
     private var stopped = false
     private var generation = 0
     init(preferences: Preferences) {
@@ -169,6 +174,31 @@ struct ProviderRow: Identifiable {
                 }
             }
         }
+    }
+    // [AI修改] 打开“终端”执行官方安装与登录，并每 5 秒检查登录状态（最多 10 分钟）；登录成功后自动开启实时读取并立即刷新。
+    @discardableResult func startClaudeSetup() -> Bool {
+        do { try ClaudeCliSetup.launch() } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法打开“终端”"
+            alert.informativeText = "也可以手动在终端中运行：\n\(ClaudeCliSetup.installCommand)\n然后运行 claude auth login"
+            alert.runModal()
+            return false
+        }
+        claudeSetupDeadline = Date().addingTimeInterval(600)
+        claudeSetupTimer?.invalidate()
+        claudeSetupTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.checkClaudeSetup() }
+        }
+        return true
+    }
+    private func checkClaudeSetup() {
+        guard Date() < claudeSetupDeadline else { claudeSetupTimer?.invalidate(); claudeSetupTimer = nil; return }
+        guard ClaudeCliSetup.status() == .ready else { return }
+        claudeSetupTimer?.invalidate(); claudeSetupTimer = nil
+        claudeReader.resetLiveThrottle()
+        preferences.claudeLive = true
+        claudeDetected = true
+        refresh()
     }
     func stop(force: Bool = false) { generation += 1; stopped = true; timer?.invalidate(); timer = nil; client?.cancel(force: force) }
 }

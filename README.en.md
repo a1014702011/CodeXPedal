@@ -26,6 +26,8 @@ Live quotas require an installed, signed-in official Codex CLI and network acces
 
 ### Claude quotas
 
+Claude quotas require **Claude Code (the CLI)** to be installed and signed in; the Claude desktop app alone is not enough. If CodeXPedal sees that you use Claude but Claude Code is missing or signed out, it asks once at startup. “Install and sign in” opens a visible terminal that runs the official installer (Windows: `irm https://claude.ai/install.ps1 | iex`; macOS: `curl -fsSL https://claude.ai/install.sh | bash`) and `claude auth login`; you only click “Authorize” in the browser. After sign-in, live reading turns on automatically. The same action is available in Settings, and “Don't ask again” suppresses the prompt. CodeXPedal never enters credentials or reads passwords.
+
 Claude has no official quota command comparable to the Codex app-server, so CodeXPedal offers two sources:
 
 1. **Claude status-line bridge (default, recommended)**: click “Enable Claude status-line bridge” in Settings. CodeXPedal points Claude Code's `statusLine` at itself and reads the documented `rate_limits` field (five-hour/seven-day used percentage and reset time), writing only those fields to `~/.claude/codexpedal-rate-limits.json`. No credentials are read; any existing status line is backed up and restored on disable. Pro/Max only, updated only after an interactive Claude Code request; values older than about 3 minutes show ≈.

@@ -26,6 +26,8 @@
 
 ### Claude 额度
 
+Claude 额度需要本机安装并登录 **Claude Code（命令行版）**；只装 Claude 桌面版读不到。CodeXPedal 启动时如果发现你在用 Claude 但没装或没登录 Claude Code，会询问一次：点击“安装并登录”后打开可见的终端窗口，执行官方安装脚本（Windows：`irm https://claude.ai/install.ps1 | iex`；macOS：`curl -fsSL https://claude.ai/install.sh | bash`）和 `claude auth login`，你只需在浏览器里点击“授权”；登录成功后自动开启实时读取并显示额度。也可以在设置中随时点击“安装并登录 Claude Code”，或选择“不再提示”。本软件不会代填账号或读取密码。
+
 Claude 没有像 Codex app-server 那样的官方额度命令，CodeXPedal 提供两种来源：
 
 1. **Claude 状态栏桥接（默认推荐）**：在设置中点击“启用 Claude 状态栏桥接”，本软件会把 Claude Code 的 `statusLine` 指向自己，读取官方文档中的 `rate_limits`（5小时/7天已用百分比与重置时间），只把这几个字段写入 `~/.claude/codexpedal-rate-limits.json`。不读取任何凭据；原状态栏会备份，停用后恢复。仅 Pro/Max 订阅、并且 Claude Code 交互会话发出请求后才会更新，空闲超过约3分钟显示 ≈。
