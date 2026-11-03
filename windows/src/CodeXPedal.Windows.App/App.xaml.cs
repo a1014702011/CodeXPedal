@@ -308,7 +308,9 @@ public partial class App : System.Windows.Application
         try
         {
             // [AI修改] 辅助窗口独立创建，避免详情页加载异常直接终止主程序。
-            new DetailsWindow(_viewModel) { Owner = _floatingWindow }.Show();
+            var details = new DetailsWindow(_viewModel);
+            AttachOwner(details);
+            details.Show();
         }
         catch (Exception exception) when (exception is InvalidOperationException or XamlParseException)
         {
@@ -327,11 +329,26 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        var window = new SettingsWindow(_viewModel.Settings) { Owner = _floatingWindow };
+        var window = new SettingsWindow(_viewModel.Settings);
+        AttachOwner(window);
         if (window.ShowDialog() == true)
         {
             _viewModel.ApplySettings(window.Result);
         }
+    }
+
+    // [AI修改] 仅任务栏模式下悬浮窗从未显示过，WPF 不允许把它设为 Owner（会抛 InvalidOperationException 导致崩溃）；
+    // 此时不设 Owner，改为屏幕居中显示。悬浮窗可见时仍居中于悬浮窗。
+    private void AttachOwner(Window window)
+    {
+        if (_floatingWindow is { IsVisible: true })
+        {
+            window.Owner = _floatingWindow;
+            window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            return;
+        }
+
+        window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
     }
 
     private void ExitApplication()
