@@ -11,33 +11,45 @@ private struct PanelMaterial: NSViewRepresentable {
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
+// [AI修改] 上报横条实际渲染尺寸：数据变化时窗口跟随渲染结果调整，避免读到 SwiftUI 刷新前的旧尺寸而裁切内容。
+private struct StripSizeKey: PreferenceKey {
+    static let defaultValue = CGSize.zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+}
+
+private extension View {
+    // [AI修改] 文字宽度只比可用宽度差一点时，SwiftUI 会把“97%”折成两行；读数和标签一律固定单行。
+    func singleLine() -> some View { lineLimit(1).fixedSize(horizontal: true, vertical: false) }
+}
+
 @MainActor struct CompactStrip: View {
     @ObservedObject var store: QuotaStore
     @ObservedObject var preferences: Preferences
     let openDetails: () -> Void
+    var onLayoutChange: () -> Void = {}
     private let quotaColor = Color(red: 0.34, green: 0.84, blue: 0.71)
     // [AI修改] 两者都安装时上下两行、每行带名称且字号按 0.8 缩放，保持横条高度可控；只装一个时与原横条一致。
     private func rowView(_ row: ProviderRow, size: Double) -> some View {
         HStack(spacing: 14) {
             if row.showLabel {
-                Text(row.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).frame(minWidth: 44, alignment: .leading)
+                Text(row.name).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).singleLine().frame(minWidth: 44, alignment: .leading)
             }
             if row.windows.isEmpty {
-                Text("额度").font(.system(size: 12)).foregroundStyle(.white.opacity(0.8))
-                Text("--").font(.system(size: size, weight: .semibold, design: .rounded)).foregroundStyle(quotaColor)
+                Text("额度").font(.system(size: 12)).foregroundStyle(.white.opacity(0.8)).singleLine()
+                Text("--").font(.system(size: size, weight: .semibold, design: .rounded)).foregroundStyle(quotaColor).singleLine()
             } else {
                 ForEach(row.windows, id: \.kind) { window in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(window.kind.label).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8))
+                        Text(window.kind.label).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8)).singleLine()
                         Text(row.value(for: window))
                             .font(.system(size: size, weight: .semibold, design: .rounded))
-                            .monospacedDigit().foregroundStyle(row.stale ? Color.white.opacity(0.85) : quotaColor)
+                            .monospacedDigit().foregroundStyle(row.stale ? Color.white.opacity(0.85) : quotaColor).singleLine()
                     }
                 }
             }
             Spacer(minLength: 0)
             Rectangle().fill(.white.opacity(0.3)).frame(width: 1, height: size)
-            Text(row.updatedAt).font(.system(size: size * 0.72, weight: .medium, design: .monospaced)).foregroundStyle(.white)
+            Text(row.updatedAt).font(.system(size: size * 0.72, weight: .medium, design: .monospaced)).foregroundStyle(.white).singleLine()
         }
     }
     var body: some View {
@@ -51,6 +63,8 @@ private struct PanelMaterial: NSViewRepresentable {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.23), lineWidth: 1))
         .fixedSize()
+        .background(GeometryReader { proxy in Color.clear.preference(key: StripSizeKey.self, value: proxy.size) })
+        .onPreferenceChange(StripSizeKey.self) { _ in onLayoutChange() }
         .help(store.rows.map { "\($0.name)：\($0.status)，最近成功读取 \($0.updatedAt)" }.joined(separator: "\n") + "\n双击查看详情，拖动调整位置。")
         .accessibilityElement(children: .combine)
         .accessibilityLabel("剩余额度，" + store.rows.map { "\($0.name)\($0.status)，最近成功读取\($0.updatedAt)" }.joined(separator: "；"))
@@ -97,6 +111,9 @@ private final class DraggablePanel: NSPanel {
         host = NSHostingView(rootView: CompactStrip(store: store, preferences: preferences, openDetails: openDetails))
         panel = DraggablePanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
+        // [AI修改] self 可用后再接入尺寸回调；异步执行，避免在 SwiftUI 布局过程中调整窗口。
+        host.rootView = CompactStrip(store: store, preferences: preferences, openDetails: openDetails,
+                                     onLayoutChange: { [weak self] in DispatchQueue.main.async { self?.updateVisibility() } })
         panel.title = "CodeXPedal"; panel.isFloatingPanel = true; panel.level = .floating
         panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = true
         panel.hidesOnDeactivate = false; panel.isMovableByWindowBackground = true
