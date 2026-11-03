@@ -91,34 +91,37 @@
                 <ContentControl Content="{Binding ClaudeRow}" ContentTemplate="{StaticResource QuotaRowTemplate}" Focusable="False" />
             </StackPanel>
 
-            <!-- [AI修改] 本机 Token 统计只属于 Codex，未安装 Codex 时隐藏。 -->
+            <!-- [AI修改] 本机 Token 统计只属于 Codex，未安装 Codex 时隐藏；两家同时显示时左侧标注 Codex，与额度行对齐。 -->
             <Grid Grid.Row="2"
                   Margin="0,4,0,0"
                   Visibility="{Binding ShowCodexTokens, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="1*" />
                     <ColumnDefinition Width="1*" />
                     <ColumnDefinition Width="1*" />
                     <ColumnDefinition Width="1*" />
                     <ColumnDefinition Width="1*" />
                 </Grid.ColumnDefinitions>
-                <StackPanel HorizontalAlignment="Center">
-                    <TextBlock Text="今日" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                <TextBlock Width="62" Text="Codex" FontSize="12" FontWeight="SemiBold" TextAlignment="Center" VerticalAlignment="Center"
+                           Visibility="{Binding ShowBoth, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                    <TextBlock Text="今日 Token" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding TodayTokens}" FontSize="14" FontWeight="SemiBold" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                <StackPanel Grid.Column="2" HorizontalAlignment="Center">
                     <TextBlock Text="7 天 Token" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding SevenDayTokens}" FontSize="14" FontWeight="SemiBold" />
                 </StackPanel>
-                <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                <StackPanel Grid.Column="3" HorizontalAlignment="Center">
                     <TextBlock Text="累计" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding LifetimeTokens}" FontSize="14" FontWeight="SemiBold" />
                 </StackPanel>
-                <StackPanel Grid.Column="3" HorizontalAlignment="Center">
+                <StackPanel Grid.Column="4" HorizontalAlignment="Center">
                     <TextBlock Text="活跃" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding ActiveTasks}" FontSize="14" FontWeight="SemiBold" Foreground="#FF7ED7FF" />
                 </StackPanel>
-                <StackPanel Grid.Column="4" HorizontalAlignment="Center">
+                <StackPanel Grid.Column="5" HorizontalAlignment="Center">
                     <TextBlock Text="待处理" FontSize="10" Foreground="{StaticResource SecondaryTextBrush}" HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding PendingTasks}" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFC76A" />
                 </StackPanel>

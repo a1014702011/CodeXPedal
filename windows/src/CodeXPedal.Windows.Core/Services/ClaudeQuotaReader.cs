@@ -128,7 +128,8 @@ public sealed class ClaudeOAuthUsageClient : IDisposable
             var info = new FileInfo(path);
             if (!info.Exists || info.Length > MaximumCredentialBytes)
             {
-                error = "未找到 Claude 登录信息，请先用 Claude Code 登录 Pro/Max 账号";
+                // [AI修改] 提示实际查找的位置；只用 Claude 桌面版时没有 Claude Code 登录文件，需要单独登录 CLI。
+                error = $"未找到 Claude Code 登录信息（{path}）。只用 Claude 桌面版时请在终端运行 claude 并用 /login 登录 Pro/Max 账号";
                 return null;
             }
 

@@ -34,9 +34,12 @@
         </Grid>
 
         <!-- [AI修改] 折叠 5 小时卡片后自动重新等分，始终保留两项本地 Token 数据，避免双布局遗漏字段。 -->
-        <!-- [AI修改] Codex 分组：未安装 Codex 且已安装 Claude 时整体隐藏。 -->
-        <UniformGrid Grid.Row="1" Margin="0,24,0,0" Rows="1"
-                     Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}">
+        <!-- [AI修改] Codex 分组：未安装 Codex 且已安装 Claude 时整体隐藏；两家同时显示时加 Codex 标题，与下方 Claude 分组对称。 -->
+        <StackPanel Grid.Row="1" Margin="0,24,0,0"
+                    Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}">
+        <TextBlock Text="Codex" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"
+                   Visibility="{Binding ShowBoth, Converter={StaticResource BooleanToVisibilityConverter}}" />
+        <UniformGrid Rows="1">
             <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0"
                     Visibility="{Binding HasFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <StackPanel><TextBlock Text="5 小时剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding FiveHourQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
@@ -48,6 +51,7 @@
                 <StackPanel><TextBlock Text="今日 Token" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding TodayTokens}" FontSize="24" /></StackPanel>
             </Border>
         </UniformGrid>
+        </StackPanel>
 
         <Grid Grid.Row="2" Margin="0,18,0,0"
               Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}">

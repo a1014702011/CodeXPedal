@@ -97,11 +97,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
         _ => "额度来源：不可用",
     };
 
+    // [AI修改] 这一行统计只来自 Codex 本地数据，文案明确标注 Codex，避免与 Claude 混淆。
     public string TokenSourceLabel => _snapshot.CodexLocal is null
-        ? "Token 统计：本地数据不可用"
+        ? "Codex Token 统计：本地数据不可用"
         : _snapshot.CodexLocal.UsesDetailedSessionEvents
-            ? "Token 统计：今日/7天按会话记录 · 累计按本机任务汇总"
-            : "Token 统计：按本机任务更新时间汇总";
+            ? "Codex Token 统计：今日/7天按会话记录 · 累计按本机任务汇总"
+            : "Codex Token 统计：按本机任务更新时间汇总";
 
     public string Diagnostics => _snapshot.Diagnostics.Count == 0
         ? "数据读取正常"
@@ -147,7 +148,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         CodexRow.Update(ShowCodex, ShowClaude, _snapshot.FiveHourQuota, _snapshot.SevenDayQuota, _snapshot.QuotaObservedAt, QuotaStale);
         var claude = _snapshot.ClaudeQuota;
-        ClaudeRow.Update(ShowClaude, ShowClaude, claude.FiveHourQuota, claude.SevenDayQuota, claude.ObservedAt, ClaudeStale);
+        // [AI修改] Claude 订阅（Pro/Max）都有 5 小时与 7 天窗口，未读到数据前两格都显示 “--”。
+        ClaudeRow.Update(ShowClaude, ShowClaude, claude.FiveHourQuota, claude.SevenDayQuota, claude.ObservedAt, ClaudeStale, placeholderBothWhenEmpty: true);
     }
 
     private void RaiseSnapshotProperties()
