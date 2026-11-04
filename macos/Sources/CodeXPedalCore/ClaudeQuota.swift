@@ -122,27 +122,47 @@ public struct ClaudeLiveUsageClient: Sendable {
         let box = FetchBox()
         let semaphore = DispatchSemaphore(value: 0)
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            box.set(data: data, status: (response as? HTTPURLResponse)?.statusCode, failed: error != nil)
+            let http = response as? HTTPURLResponse
+            box.set(data: data, status: http?.statusCode, failed: error != nil, retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
             semaphore.signal()
         }
         task.resume()
         // [AI修改] 等待有上限；超时取消请求，不留后台任务。
         if semaphore.wait(timeout: .now() + 20) == .timedOut { task.cancel(); throw QuotaReadError.claudeNetwork }
-        let (data, status, failed) = box.get()
+        let (data, status, failed, retryAfter) = box.get()
         guard !failed, let status else { throw QuotaReadError.claudeNetwork }
         if status == 401 || status == 403 { throw QuotaReadError.claudeUnauthorized }
-        if status == 429 { throw QuotaReadError.claudeRateLimited }
+        if status == 429 { throw ClaudeRateLimitedError(retryAfter: ClaudeRateLimitedError.parse(retryAfter)) }
         guard (200..<300).contains(status) else { throw QuotaReadError.claudeHTTP(status) }
         guard let data, data.count <= 1_048_576 else { throw QuotaReadError.outputTooLarge }
         return data
     }
 }
 
+// [AI修改] 429 限流错误，携带服务器 Retry-After 建议的等待秒数（可能没有），供读取器退避。
+public struct ClaudeRateLimitedError: Error, LocalizedError, Sendable {
+    public let retryAfter: TimeInterval?
+    public init(retryAfter: TimeInterval?) { self.retryAfter = retryAfter }
+    public var errorDescription: String? { QuotaReadError.claudeRateLimited.localizedDescription }
+
+    // [AI修改] Retry-After 可为秒数或 HTTP 日期；无法识别时返回 nil，按逐级退避处理。
+    static func parse(_ header: String?, now: Date = Date()) -> TimeInterval? {
+        guard let text = header?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
+        if let seconds = TimeInterval(text) { return seconds }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter.date(from: text).map { $0.timeIntervalSince(now) }
+    }
+}
+
 private final class FetchBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var data: Data?, status: Int?, failed = false
-    func set(data: Data?, status: Int?, failed: Bool) { lock.lock(); self.data = data; self.status = status; self.failed = failed; lock.unlock() }
-    func get() -> (Data?, Int?, Bool) { lock.lock(); defer { lock.unlock() }; return (data, status, failed) }
+    private var data: Data?, status: Int?, failed = false, retryAfter: String?
+    func set(data: Data?, status: Int?, failed: Bool, retryAfter: String?) {
+        lock.lock(); self.data = data; self.status = status; self.failed = failed; self.retryAfter = retryAfter; lock.unlock()
+    }
+    func get() -> (Data?, Int?, Bool, String?) { lock.lock(); defer { lock.unlock() }; return (data, status, failed, retryAfter) }
 }
 
 public enum ClaudeReadOutcome: Sendable {
@@ -151,13 +171,29 @@ public enum ClaudeReadOutcome: Sendable {
     case unchanged
 }
 
-// [AI修改] 读取策略与 Windows 一致：实时接口最少 60 秒一次；未开启或失败时只接受比当前更新的状态栏缓存。
+// [AI修改] 读取策略与 Windows 一致：实时接口正常 120 秒一次、被限流时退避；未开启或失败时只接受比当前更新的状态栏缓存。
 public final class ClaudeQuotaReader: @unchecked Sendable {
     private let lock = NSLock()
     private let live: ClaudeLiveUsageClient
     private let configDirectory: @Sendable () -> URL
     private var lastLiveAttempt: Date?
+    // [AI修改] 下一次允许请求的时间；被限流时推迟到退避结束，期间完全不发请求。
+    private var nextLiveAttempt: Date?
+    private var rateLimitStreak = 0
     private var lastLiveError: String?
+    // [AI修改] 正常间隔 120 秒：额度两分钟更新足够，且小于 180 秒的过期判定，不会无故显示 ≈。
+    static let normalLiveInterval: TimeInterval = 120
+
+    // [AI修改] 限流退避：有 Retry-After 就照办（限制在 1–30 分钟）；否则第 1/2/3 次依次等 2/4/8 分钟，之后每次 15 分钟。
+    static func rateLimitDelay(streak: Int, retryAfter: TimeInterval?) -> TimeInterval {
+        if let retryAfter { return min(max(retryAfter, 60), 1800) }
+        switch streak {
+        case ...1: return 120
+        case 2: return 240
+        case 3: return 480
+        default: return 900
+        }
+    }
     private var liveDenied = false
 
     public init(live: ClaudeLiveUsageClient = ClaudeLiveUsageClient(), configDirectory: (@Sendable () -> URL)? = nil) {
@@ -165,8 +201,10 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
         self.configDirectory = configDirectory ?? { ClaudeLocator.configDirectory() }
     }
 
-    // [AI修改] 刚完成登录时立即允许下一次实时读取，不等 60 秒节流。
-    public func resetLiveThrottle() { lock.lock(); lastLiveAttempt = nil; lastLiveError = nil; liveDenied = false; lock.unlock() }
+    // [AI修改] 刚完成登录时立即允许下一次实时读取，不等正常间隔并清除限流退避。
+    public func resetLiveThrottle() {
+        lock.lock(); lastLiveAttempt = nil; nextLiveAttempt = nil; rateLimitStreak = 0; lastLiveError = nil; liveDenied = false; lock.unlock()
+    }
 
     public func read(liveEnabled: Bool, now: Date, lastObserved: Date?) -> ClaudeReadOutcome {
         lock.lock(); defer { lock.unlock() }
@@ -174,12 +212,23 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
         // [AI修改] 钥匙串被拒绝后暂停到下次启动或用户关闭实时读取，期间继续接受状态栏桥接数据。
         if !liveEnabled { liveDenied = false }
         if liveEnabled, !liveDenied {
-            if lastLiveAttempt.map({ now.timeIntervalSince($0) >= 60 || $0 > now }) ?? true {
+            // [AI修改] 时钟回拨（上次请求时间晚于现在）时立即允许请求，避免永久卡住。
+            let due = nextLiveAttempt.map { now >= $0 } ?? true
+            if due || (lastLiveAttempt.map { $0 > now } ?? false) {
                 lastLiveAttempt = now
+                nextLiveAttempt = now.addingTimeInterval(Self.normalLiveInterval)
                 do {
                     let snapshot = try RateLimitParser.parseClaude(try live.read(configDirectory: directory, now: now), observedAt: now)
                     lastLiveError = nil
+                    rateLimitStreak = 0
                     return .updated(snapshot, .live)
+                } catch let limited as ClaudeRateLimitedError {
+                    // [AI修改] 限流时按服务器建议或逐级翻倍退避，提示写明自动重试时间，恢复前一直保留该提示。
+                    rateLimitStreak += 1
+                    let retryAt = now.addingTimeInterval(Self.rateLimitDelay(streak: rateLimitStreak, retryAfter: limited.retryAfter))
+                    nextLiveAttempt = retryAt
+                    let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_GB"); formatter.dateFormat = "HH:mm:ss"
+                    lastLiveError = "Claude 额度接口限流中，\(formatter.string(from: retryAt)) 后自动重试。"
                 } catch {
                     lastLiveError = (error as? QuotaReadError)?.localizedDescription ?? "Claude 额度读取失败。"
                     if case QuotaReadError.claudeKeychainDenied = error { liveDenied = true }

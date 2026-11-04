@@ -30,7 +30,7 @@ Claude 额度需要 Pro/Max 订阅，并在本机安装、登录 **Claude Code�
 
 Claude 没有像 Codex app-server 那样的官方额度命令，CodeXPedal 提供两种来源，实时读取失败时自动使用桥接数据：
 
-1. **实时读取（默认开启）**：读取本机 Claude Code 登录令牌（Windows：`~/.claude/.credentials.json`；macOS：钥匙串“Claude Code-credentials”，系统会询问授权，拒绝后暂停且不重复弹窗），每分钟最多一次调用 Anthropic 官方 usage 接口。该接口与 Claude Code `/usage` 同源但未公开文档，字段可能变化；令牌不保存、不上传到其他地方，过期时不代为刷新，需打开一次 Claude Code。可在设置中关闭。
+1. **实时读取（默认开启）**：读取本机 Claude Code 登录令牌（Windows：`~/.claude/.credentials.json`；macOS：钥匙串“Claude Code-credentials”，系统会询问授权，拒绝后暂停且不重复弹窗），约每 2 分钟一次（被限流时自动退避，按服务器建议或 2→4→8→15 分钟逐级延长）调用 Anthropic 官方 usage 接口。该接口与 Claude Code `/usage` 同源但未公开文档，字段可能变化；令牌不保存、不上传到其他地方，过期时不代为刷新，需打开一次 Claude Code。可在设置中关闭。
 2. **Claude 状态栏桥接（备选）**：不读取任何凭据，适合不想授权读取令牌时使用。在设置中点击“启用 Claude 状态栏桥接”，然后在终端运行 `claude` 并发送一条消息（桌面端可能不会更新），额度会在下次刷新时显示。本软件会把 Claude Code 的 `statusLine` 指向自己，只把官方 `rate_limits` 的 5小时/7天已用百分比与重置时间写入 `~/.claude/codexpedal-rate-limits.json`；原状态栏会备份，停用后恢复。仅 Pro/Max 订阅，只在发消息后更新，空闲超过约3分钟显示 ≈。完全不想读取令牌时，请同时关闭实时读取。
 
 Claude Code 查找顺序：`CODEXPEDAL_CLAUDE_PATH` → 官方原生安装（`~/.local/bin`）→ npm → WinGet / Homebrew → Claude 桌面版托管目录 → PATH；有 CLI 或存在 Claude 配置目录（支持 `CLAUDE_CONFIG_DIR`）即视为已安装。接入前可用 `python scripts/claude-quota-probe.py`（加 `--oauth` 测试实时接口）在本机核对路径与额度。

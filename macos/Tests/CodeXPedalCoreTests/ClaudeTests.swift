@@ -77,7 +77,7 @@ final class ClaudeTests: XCTestCase {
         let now = Date()
         guard case .updated(let snapshot, .live) = reader.read(liveEnabled: true, now: now, lastObserved: nil) else { return XCTFail("实时读取") }
         XCTAssertEqual(snapshot.windows.map(\.remainingText), ["70%", "40%"])
-        guard case .unchanged = reader.read(liveEnabled: true, now: now.addingTimeInterval(5), lastObserved: now) else { return XCTFail("60秒内不重复请求") }
+        guard case .unchanged = reader.read(liveEnabled: true, now: now.addingTimeInterval(5), lastObserved: now) else { return XCTFail("正常间隔内不重复请求") }
         XCTAssertEqual(calls.value, 1)
         let failing = ClaudeQuotaReader(live: ClaudeLiveUsageClient(fetch: { _ in Data() }, tokenProvider: { _, _ in throw QuotaReadError.claudeTokenExpired }),
                                         configDirectory: { dir })
@@ -105,6 +105,40 @@ final class ClaudeTests: XCTestCase {
         _ = reader.read(liveEnabled: false, now: now.addingTimeInterval(180), lastObserved: nil)
         _ = reader.read(liveEnabled: true, now: now.addingTimeInterval(240), lastObserved: nil)
         XCTAssertEqual(attempts.value, 2)
+    }
+    // [AI修改] 限流测试：退避期内不发请求、提示持续，到期重试成功后恢复 120 秒正常间隔。
+    func testRateLimitHonoursRetryAfterAndRecovers() throws {
+        let calls = Counter()
+        let dir = directory!
+        let body = Data(#"{"five_hour":{"utilization":10},"seven_day":{"utilization":20}}"#.utf8)
+        let reader = ClaudeQuotaReader(live: ClaudeLiveUsageClient(fetch: { _ in
+            calls.increment()
+            if calls.value == 1 { throw ClaudeRateLimitedError(retryAfter: 600) }
+            return body
+        }, tokenProvider: { _, _ in "t" }), configDirectory: { dir })
+        let start = Date()
+        guard case .failed(let message) = reader.read(liveEnabled: true, now: start, lastObserved: nil) else { return XCTFail("限流应失败") }
+        XCTAssertTrue(message.contains("限流中"))
+        guard case .failed(let waiting) = reader.read(liveEnabled: true, now: start.addingTimeInterval(300), lastObserved: nil) else { return XCTFail("等待期提示应保留") }
+        XCTAssertTrue(waiting.contains("限流中"))
+        XCTAssertEqual(calls.value, 1)
+        guard case .updated(_, .live) = reader.read(liveEnabled: true, now: start.addingTimeInterval(601), lastObserved: nil) else { return XCTFail("到期后应重试成功") }
+        XCTAssertEqual(calls.value, 2)
+        guard case .unchanged = reader.read(liveEnabled: true, now: start.addingTimeInterval(661), lastObserved: start) else { return XCTFail("恢复后按120秒间隔") }
+        XCTAssertEqual(calls.value, 2)
+    }
+    func testRateLimitDelayAndRetryAfterParsing() {
+        XCTAssertEqual(ClaudeQuotaReader.rateLimitDelay(streak: 1, retryAfter: nil), 120)
+        XCTAssertEqual(ClaudeQuotaReader.rateLimitDelay(streak: 2, retryAfter: nil), 240)
+        XCTAssertEqual(ClaudeQuotaReader.rateLimitDelay(streak: 3, retryAfter: nil), 480)
+        XCTAssertEqual(ClaudeQuotaReader.rateLimitDelay(streak: 9, retryAfter: nil), 900)
+        XCTAssertEqual(ClaudeQuotaReader.rateLimitDelay(streak: 1, retryAfter: 5), 60)
+        XCTAssertEqual(ClaudeQuotaReader.rateLimitDelay(streak: 1, retryAfter: 99_999), 1800)
+        XCTAssertEqual(ClaudeRateLimitedError.parse("300"), 300)
+        XCTAssertNil(ClaudeRateLimitedError.parse("soon"))
+        // 2026-11-04 02:45:00 GMT = 1_793_760_300，比 now 晚 3900 秒。
+        let now = Date(timeIntervalSince1970: 1_793_756_400)
+        XCTAssertEqual(ClaudeRateLimitedError.parse("Wed, 04 Nov 2026 02:45:00 GMT", now: now) ?? -1, 3900, accuracy: 1)
     }
     func testExpiredCredentialFileIsRejectedWithoutToken() throws {
         guard ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"] == nil else { return }

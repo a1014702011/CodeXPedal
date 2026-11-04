@@ -40,7 +40,8 @@ public static class ClaudeStatusLineCache
     }
 }
 
-public sealed record ClaudeUsageResponse(string? Json, string? Error);
+// [AI修改] RateLimited/RetryAfter 记录 429 限流及服务器建议的等待时间，供读取器退避。
+public sealed record ClaudeUsageResponse(string? Json, string? Error, bool RateLimited = false, TimeSpan? RetryAfter = null);
 
 // [AI修改] 官方 usage 接口（Claude Code /usage 同源，未公开文档）。令牌只在内存中使用一次，不记录、不缓存、不代为刷新。
 public sealed class ClaudeOAuthUsageClient : IDisposable
@@ -80,7 +81,10 @@ public sealed class ClaudeOAuthUsageClient : IDisposable
 
             if ((int)response.StatusCode == 429)
             {
-                return new(null, "Claude 额度接口请求过于频繁，稍后自动重试");
+                // [AI修改] 读取 Retry-After（秒数或日期），由读取器决定下一次请求时间。
+                var retry = response.Headers.RetryAfter;
+                TimeSpan? retryAfter = retry?.Delta ?? (retry?.Date is { } until ? until - DateTimeOffset.UtcNow : null);
+                return new(null, "Claude 额度接口请求过于频繁", RateLimited: true, RetryAfter: retryAfter);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -166,13 +170,16 @@ public sealed class ClaudeOAuthUsageClient : IDisposable
 // [AI修改] Claude 额度状态：只接受通过共享核心校验的新结果，失败保留旧值与旧采样时间。
 public sealed class ClaudeQuotaReader : IDisposable
 {
-    // [AI修改] 官方接口最少间隔 60 秒，避免短刷新间隔触发限流。
-    private static readonly TimeSpan MinimumLiveInterval = TimeSpan.FromSeconds(60);
+    // [AI修改] 官方接口正常间隔 120 秒：额度两分钟更新足够，且小于 180 秒的过期判定，不会无故显示 ≈。
+    internal static readonly TimeSpan NormalLiveInterval = TimeSpan.FromSeconds(120);
     private readonly ClaudeOAuthUsageClient _live;
     private readonly Func<string> _configDirectory;
     private NativeQuotaSnapshot _last;
     private ClaudeQuotaSource _lastSource;
+    // [AI修改] 下一次允许请求的时间；被限流时推迟到退避结束，期间完全不发请求。
+    private DateTimeOffset _nextLiveAttempt = DateTimeOffset.MinValue;
     private DateTimeOffset _lastLiveAttempt = DateTimeOffset.MinValue;
+    private int _rateLimitStreak;
     private string? _lastLiveError;
 
     public ClaudeQuotaReader(ClaudeOAuthUsageClient? live = null, Func<string>? configDirectory = null)
@@ -189,15 +196,24 @@ public sealed class ClaudeQuotaReader : IDisposable
         var failed = false;
         if (liveEnabled)
         {
-            if (now - _lastLiveAttempt >= MinimumLiveInterval || _lastLiveAttempt > now)
+            // [AI修改] 时钟回拨（上次请求时间晚于现在）时立即允许请求，避免永久卡住。
+            if (now >= _nextLiveAttempt || _lastLiveAttempt > now)
             {
                 _lastLiveAttempt = now;
                 var response = await _live.ReadAsync(configDirectory, cancellationToken).ConfigureAwait(false);
                 _lastLiveError = response.Error;
-                if (response.Json is not null)
+                _nextLiveAttempt = now + NormalLiveInterval;
+                if (response.RateLimited)
+                {
+                    // [AI修改] 限流时按服务器建议或逐级翻倍退避，提示写明自动重试时间，恢复前一直保留该提示。
+                    _rateLimitStreak++;
+                    _nextLiveAttempt = now + RateLimitDelay(_rateLimitStreak, response.RetryAfter);
+                    _lastLiveError = $"Claude 额度接口限流中，{Formatting.UsageFormatter.Clock(_nextLiveAttempt)} 后自动重试";
+                }
+                else if (response.Json is not null)
                 {
                     var status = SharedQuotaCore.ParseClaude(response.Json, now, out var parsed);
-                    if (status == 0) { incoming = parsed; source = ClaudeQuotaSource.LiveOAuth; }
+                    if (status == 0) { incoming = parsed; source = ClaudeQuotaSource.LiveOAuth; _rateLimitStreak = 0; }
                     else { _lastLiveError = SharedQuotaCore.ClaudeErrorMessage(status); }
                 }
             }
@@ -233,8 +249,25 @@ public sealed class ClaudeQuotaReader : IDisposable
         return new ClaudeQuotaSnapshot(windows.FiveHour, windows.SevenDay, source, observed, failed);
     }
 
-    // [AI修改] 刚完成登录时立即允许下一次实时读取，不等 60 秒节流。
-    public void ResetLiveThrottle() => _lastLiveAttempt = DateTimeOffset.MinValue;
+    // [AI修改] 限流退避：服务器给了 Retry-After 就照办（限制在 1–30 分钟）；否则第 1/2/3 次依次等 2/4/8 分钟，之后每次 15 分钟。
+    internal static TimeSpan RateLimitDelay(int streak, TimeSpan? retryAfter)
+    {
+        if (retryAfter is { } suggested)
+        {
+            return TimeSpan.FromSeconds(Math.Clamp(suggested.TotalSeconds, 60, 1800));
+        }
+
+        var minutes = streak switch { <= 1 => 2, 2 => 4, 3 => 8, _ => 15 };
+        return TimeSpan.FromMinutes(minutes);
+    }
+
+    // [AI修改] 刚完成登录时立即允许下一次实时读取，并清除限流退避。
+    public void ResetLiveThrottle()
+    {
+        _nextLiveAttempt = DateTimeOffset.MinValue;
+        _lastLiveAttempt = DateTimeOffset.MinValue;
+        _rateLimitStreak = 0;
+    }
 
     public void Dispose() => _live.Dispose();
 }

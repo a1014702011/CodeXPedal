@@ -88,7 +88,7 @@ import CodeXPedalCore
                     Text(cliText.status).font(.caption).foregroundStyle(.secondary)
                 }
                 Toggle("实时读取 Claude 额度（默认，读取钥匙串中的 Claude 登录令牌）", isOn: $preferences.claudeLive)
-                Text("首次读取时系统会询问是否允许访问「Claude Code-credentials」；每分钟最多一次发送到 Anthropic 官方接口，不保存、不上传到其他地方。令牌过期时请打开一次 Claude Code。")
+                Text("首次读取时系统会询问是否允许访问「Claude Code-credentials」；约每 2 分钟一次（被限流时自动退避）发送到 Anthropic 官方接口，不保存、不上传到其他地方。令牌过期时请打开一次 Claude Code。")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Text("备选方式：Claude 状态栏桥接").font(.subheadline.weight(.semibold)).padding(.top, 4)
                 Text("不想授权读取令牌，或实时读取失败时使用，需要 Pro/Max 订阅：\n1. 点击下方按钮启用桥接，原状态栏会备份，停用后恢复。\n2. 在终端运行 claude 并发送一条消息；桌面端可能不会更新额度。\n3. 回到本程序等待下次刷新。之后只在发消息时更新，空闲约3分钟后数字带 ≈。\n如需完全不读取令牌，请同时关闭上方的实时读取。")

@@ -99,6 +99,8 @@ var tests = new (string Name, Action Run)[]
     ("Claude 未开启实时不读取令牌", ClaudeLiveDisabledSkipsNetwork),
     ("Claude 实时接口成功替换快照", ClaudeLiveReadsUsage),
     ("Claude 过期令牌不发请求", ClaudeExpiredTokenSkipsNetwork),
+    ("Claude 限流后按 Retry-After 退避", ClaudeRateLimitHonoursRetryAfter),
+    ("Claude 连续限流逐级延长并在成功后恢复", ClaudeRateLimitBacksOffAndRecovers),
     ("Claude 桥接备份并恢复原状态栏", ClaudeBridgeRoundTrip),
     ("Claude 路径发现顺序", ResolvesClaudeExecutable),
     ("Claude 陈旧规则与 Codex 一致", ClaudeStalenessBoundary),
@@ -670,8 +672,42 @@ static void ClaudeLiveReadsUsage() => WithTempDirectory(directory =>
     AssertEqual(70D, snapshot.FiveHourQuota!.RemainingPercent, "5小时剩余");
     Assert(!snapshot.ReadFailed && diagnostics.All(item => !item.Contains("sk-test")), "诊断不含令牌");
     _ = reader.ReadAsync(true, DateTimeOffset.UtcNow.AddSeconds(5), diagnostics, CancellationToken.None).GetAwaiter().GetResult();
-    AssertEqual(1, handler.Calls, "60秒内不重复请求");
+    AssertEqual(1, handler.Calls, "正常间隔内不重复请求");
 });
+
+// [AI修改] 限流测试：退避期内不发请求，提示持续显示，成功后恢复正常间隔。
+static void ClaudeRateLimitHonoursRetryAfter() => WithTempDirectory(directory =>
+{
+    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CLAUDE_CODE_OAUTH_TOKEN"))) { return; }
+    File.WriteAllText(Path.Combine(directory, ".credentials.json"), """{"claudeAiOauth":{"accessToken":"sk-test-token","expiresAt":32503680000000}}""");
+    var handler = new CountingHandler { RateLimitedCalls = 1, RetryAfterSeconds = 600, Body = """{"five_hour":{"utilization":10},"seven_day":{"utilization":20}}""" };
+    using var reader = new ClaudeQuotaReader(new ClaudeOAuthUsageClient(handler), () => directory);
+    var start = DateTimeOffset.UtcNow;
+    var diagnostics = new List<string>();
+    var first = reader.ReadAsync(true, start, diagnostics, CancellationToken.None).GetAwaiter().GetResult();
+    Assert(first.ReadFailed && diagnostics.Any(item => item.Contains("限流中")), "限流时标记失败并提示");
+    diagnostics.Clear();
+    _ = reader.ReadAsync(true, start.AddSeconds(300), diagnostics, CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(1, handler.Calls, "Retry-After 期内不发请求");
+    Assert(diagnostics.Any(item => item.Contains("限流中")), "等待期间提示持续显示");
+    var recovered = reader.ReadAsync(true, start.AddSeconds(601), new List<string>(), CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(2, handler.Calls, "到期后重试");
+    Assert(!recovered.ReadFailed && recovered.FiveHourQuota is not null, "重试成功后恢复");
+    _ = reader.ReadAsync(true, start.AddSeconds(661), new List<string>(), CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(2, handler.Calls, "恢复后按 120 秒正常间隔");
+    _ = reader.ReadAsync(true, start.AddSeconds(722), new List<string>(), CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(3, handler.Calls, "120 秒后再次请求");
+});
+
+static void ClaudeRateLimitBacksOffAndRecovers()
+{
+    AssertEqual(TimeSpan.FromMinutes(2), ClaudeQuotaReader.RateLimitDelay(1, null), "第1次限流等2分钟");
+    AssertEqual(TimeSpan.FromMinutes(4), ClaudeQuotaReader.RateLimitDelay(2, null), "第2次等4分钟");
+    AssertEqual(TimeSpan.FromMinutes(8), ClaudeQuotaReader.RateLimitDelay(3, null), "第3次等8分钟");
+    AssertEqual(TimeSpan.FromMinutes(15), ClaudeQuotaReader.RateLimitDelay(9, null), "之后封顶15分钟");
+    AssertEqual(TimeSpan.FromSeconds(60), ClaudeQuotaReader.RateLimitDelay(1, TimeSpan.FromSeconds(5)), "Retry-After 过短按1分钟");
+    AssertEqual(TimeSpan.FromMinutes(30), ClaudeQuotaReader.RateLimitDelay(1, TimeSpan.FromHours(5)), "Retry-After 过长按30分钟");
+}
 
 static void ClaudeExpiredTokenSkipsNetwork() => WithTempDirectory(directory =>
 {
@@ -794,11 +830,22 @@ sealed class CountingHandler : HttpMessageHandler
     public int Calls { get; private set; }
     public string? Authorization { get; private set; }
     public string Body { get; init; } = "{}";
+    // [AI修改] 可模拟限流：前 RateLimitedCalls 次返回 429，并可带 Retry-After 秒数。
+    public int RateLimitedCalls { get; set; }
+    public int? RetryAfterSeconds { get; init; }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Calls++;
         Authorization = request.Headers.Authorization?.ToString();
+        if (RateLimitedCalls > 0)
+        {
+            RateLimitedCalls--;
+            var limited = new HttpResponseMessage((System.Net.HttpStatusCode)429);
+            if (RetryAfterSeconds is { } seconds) { limited.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(seconds)); }
+            return Task.FromResult(limited);
+        }
+
         return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(Body) });
     }
 }
