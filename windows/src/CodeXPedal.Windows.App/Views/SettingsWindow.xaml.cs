@@ -15,9 +15,15 @@ public partial class SettingsWindow : Window
     public SettingsWindow(AppSettings settings, Func<bool>? startClaudeSetup = null)
     {
         InitializeComponent();
+        // [AI修改] 内容由滚动区承载，小屏幕也保留底部保存按钮。
+        MaxHeight = SystemParameters.WorkArea.Height;
         _original = settings;
         _startClaudeSetup = startClaudeSetup;
         Result = settings;
+        // [AI修改] 还原已保存的两个额度开关和时间模式。
+        CodexEnabledCheckBox.IsChecked = settings.CodexEnabled;
+        ClaudeEnabledCheckBox.IsChecked = settings.ClaudeEnabled;
+        QuotaTimeComboBox.SelectedIndex = settings.QuotaTimeMode == QuotaTimeMode.NextReset ? 1 : 0;
         CompactModeCheckBox.IsChecked = settings.CompactMode;
         AlwaysOnTopCheckBox.IsChecked = settings.AlwaysOnTop;
         TaskbarStripCheckBox.IsChecked = settings.ShowTaskbarStrip;
@@ -53,6 +59,10 @@ public partial class SettingsWindow : Window
         var taskbarOnlyMode = TaskbarOnlyModeCheckBox.IsChecked == true;
         Result = _original with
         {
+            // [AI修改] 保存后同时应用显示和后台读取门禁。
+            CodexEnabled = CodexEnabledCheckBox.IsChecked == true,
+            ClaudeEnabled = ClaudeEnabledCheckBox.IsChecked == true,
+            QuotaTimeMode = QuotaTimeComboBox.SelectedIndex == 1 ? QuotaTimeMode.NextReset : QuotaTimeMode.Observed,
             CompactMode = CompactModeCheckBox.IsChecked == true,
             AlwaysOnTop = AlwaysOnTopCheckBox.IsChecked == true,
             ShowTaskbarStrip = taskbarOnlyMode || TaskbarStripCheckBox.IsChecked == true,

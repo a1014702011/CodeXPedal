@@ -28,7 +28,10 @@ public partial class App : System.Windows.Application
     // [AI修改] 只在模式首次应用或发生切换时改变悬浮窗可见性，保留用户临时显示或隐藏的状态。
     private bool? _appliedTaskbarOnlyMode;
     private bool _isExiting;
-    private bool _appliedClaudeLiveQuota;
+    // [AI修改] 设置切换取消整轮读取；结束后只重试当前启用的来源。
+    private AppSettings? _appliedQuotaSettings;
+    private CancellationTokenSource? _quotaRefresh;
+    private bool _refreshPending;
     // [AI修改] 安装/登录 Claude Code 后轮询登录状态，最多 10 分钟。
     private readonly DispatcherTimer _claudeSetupTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private DateTimeOffset _claudeSetupDeadline;
@@ -56,7 +59,9 @@ public partial class App : System.Windows.Application
         // [AI修改] 作为 Claude Code statusLine 命令被调用时只处理一次输入并立即退出，不创建窗口、不占用单实例锁。
         if (e.Args.Length > 0 && e.Args[0] == ClaudeStatusLineHook.Argument)
         {
-            RunClaudeStatusLineHook();
+            // [AI修改] 用户关闭 Claude 后，即使外部 Claude Code 调用桥接，也不读取额度输入或写缓存。
+            var hookSettings = await _settingsStore.LoadAsync(_lifetime.Token);
+            RunClaudeStatusLineHook(hookSettings.ClaudeEnabled);
             return;
         }
 
@@ -83,22 +88,22 @@ public partial class App : System.Windows.Application
         }
 #endif
         _viewModel = new MainViewModel(settings);
-        // [AI修改] 启动时先探测安装情况，避免只装 Claude 的用户首帧看到空的 Codex 行。
-        var (codexDetected, claudeDetected) = ProviderDetection.Detect();
-        _viewModel.ApplySnapshot(UsageSnapshot.Empty(DateTimeOffset.Now) with { CodexDetected = codexDetected, ClaudeDetected = claudeDetected });
-        _appliedClaudeLiveQuota = settings.ClaudeLiveQuota;
+        // [AI修改] 启动时关闭 Claude 就不探测或询问安装状态。
+        var claudeDetected = settings.ClaudeEnabled && ClaudeExecutableResolver.IsInstalled();
+        _appliedQuotaSettings = settings;
         _floatingWindow = new FloatingWindow(_viewModel, SaveSettingsAsync, OpenSettings, OpenDetails, ExitApplication);
         _floatingWindow.RefreshRequested += async (_, _) => await RefreshNowAsync();
 
         _tray = new TrayService(ShowFloatingWindow, () => _floatingWindow?.Hide(), () => _floatingWindow?.IsVisible == true,
-            RefreshNowAsync, OpenDetails, OpenSettings, ExitApplication);
+            RefreshNowAsync, () => _viewModel?.CanRefresh == true, OpenDetails, OpenSettings, ExitApplication);
         _taskbarStrip = new TaskbarStripService(ShowFloatingWindow);
         ApplySettings(settings);
 
         _viewModel.SettingsChanged += OnSettingsChanged;
         _viewModel.SnapshotChanged += OnSnapshotChanged;
         _refreshTimer.Tick += async (_, _) => await RefreshNowAsync();
-        _refreshTimer.Start();
+        if (settings.HasEnabledProvider) { _refreshTimer.Start(); }
+        OnSnapshotChanged(null, EventArgs.Empty);
 #if DEBUG
         // [AI修改] DEBUG 验收可定时走正式退出路径，验证任务栏预留空间和恢复凭据会被清理。
         ScheduleVerificationExit();
@@ -129,8 +134,10 @@ public partial class App : System.Windows.Application
 
     private void PromptClaudeSetup()
     {
+        // [AI修改] 启动排队期间可能已经在设置中关闭 Claude。
+        if (_viewModel?.Settings.ClaudeEnabled != true || _isExiting) { return; }
         var status = ClaudeCliSetup.GetStatus();
-        if (status == ClaudeCliStatus.Ready || _viewModel is null || _isExiting)
+        if (status == ClaudeCliStatus.Ready)
         {
             return;
         }
@@ -171,7 +178,7 @@ public partial class App : System.Windows.Application
     // [AI修改] 发现登录完成后自动开启实时读取并立即刷新；超时只停止轮询，不弹错误。
     private async Task CheckClaudeSetupAsync()
     {
-        if (_viewModel is null || DateTimeOffset.UtcNow > _claudeSetupDeadline)
+        if (_viewModel?.Settings.ClaudeEnabled != true || DateTimeOffset.UtcNow > _claudeSetupDeadline)
         {
             _claudeSetupTimer.Stop();
             return;
@@ -195,12 +202,13 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private void RunClaudeStatusLineHook()
+    private void RunClaudeStatusLineHook(bool enabled)
     {
         try
         {
             using var input = Console.OpenStandardInput();
-            var text = ClaudeStatusLineHook.Run(input, ClaudeExecutableResolver.ConfigDirectory(), DateTimeOffset.UtcNow);
+            var text = enabled ? ClaudeStatusLineHook.Run(input, ClaudeExecutableResolver.ConfigDirectory(), DateTimeOffset.UtcNow)
+                : "CodeXPedal：已关闭 Claude 额度";
             using var output = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false));
             output.Write(text);
         }
@@ -246,31 +254,42 @@ public partial class App : System.Windows.Application
 
     private async Task RefreshNowAsync()
     {
-        if (_viewModel is null || _viewModel.IsRefreshing)
+        if (_viewModel is null || !_viewModel.CanRefresh || _isExiting)
         {
             return;
         }
 
+        // [AI修改] 绑定本轮设置；即便旧请求已经返回，也不能跨设置代次发布结果。
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _quotaRefresh = request;
         _viewModel.IsRefreshing = true;
         try
         {
-            var snapshot = await _snapshotService.RefreshAsync(_viewModel.Settings.ClaudeLiveQuota, _lifetime.Token);
+            // [AI修改] 文件探测/读取不占用 UI 线程，设置可在后台等待时立即取消。
+            var settings = _viewModel.Settings;
+            var snapshot = await Task.Run(() => _snapshotService.RefreshAsync(settings, request.Token), request.Token);
+            request.Token.ThrowIfCancellationRequested();
 #if DEBUG
             // [AI修改] 自动验收可稳定模拟 Plus 或 Pro 的额度拓扑，不写入用户配置或 Release 行为。
             snapshot = ApplyCaptureQuotaOverride(snapshot);
 #endif
             _viewModel.ApplySnapshot(snapshot);
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (request.IsCancellationRequested)
         {
-            // [AI修改] 正常退出时取消刷新，不向用户显示错误。
+            // [AI修改] 关闭来源或退出产生的取消不显示为读取错误。
         }
         finally
         {
-            if (_viewModel is not null)
-            {
-                _viewModel.IsRefreshing = false;
-            }
+            _quotaRefresh = null;
+            _viewModel.IsRefreshing = false;
+        }
+
+        if (_refreshPending)
+        {
+            _refreshPending = false;
+            // [AI修改] 排队而不是递归等待，连续切换设置不积累异步调用链。
+            _ = Dispatcher.BeginInvoke(new Action(() => _ = RefreshNowAsync()));
         }
     }
 
@@ -304,13 +323,30 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        ApplySettings(_viewModel.Settings);
-        _ = SaveSettingsAsync(_viewModel.Settings);
-        // [AI修改] 切换 Claude 实时读取后立即刷新，其余设置变化不额外触发读取。
-        if (_appliedClaudeLiveQuota != _viewModel.Settings.ClaudeLiveQuota)
+        var settings = _viewModel.Settings;
+        var previous = _appliedQuotaSettings!;
+        _appliedQuotaSettings = settings;
+        ApplySettings(settings);
+        _ = SaveSettingsAsync(settings);
+        // [AI修改] 只有影响读取的设置会取消本轮并安排新刷新；切换时间样式不读数据。
+        if (previous.CodexEnabled == settings.CodexEnabled && previous.ClaudeEnabled == settings.ClaudeEnabled
+            && (!settings.ClaudeEnabled || previous.ClaudeLiveQuota == settings.ClaudeLiveQuota))
         {
-            _appliedClaudeLiveQuota = _viewModel.Settings.ClaudeLiveQuota;
-            _ = RefreshNowAsync();
+            return;
+        }
+
+        _refreshPending = settings.HasEnabledProvider && _quotaRefresh is not null;
+        _quotaRefresh?.Cancel();
+        if (!settings.ClaudeEnabled) { _claudeSetupTimer.Stop(); }
+        if (!settings.HasEnabledProvider)
+        {
+            _refreshTimer.Stop();
+            _ = _snapshotService.StopCodexSessionAsync();
+        }
+        else
+        {
+            _refreshTimer.Start();
+            if (!_refreshPending) { _ = RefreshNowAsync(); }
         }
     }
 

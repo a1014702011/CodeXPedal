@@ -15,6 +15,36 @@ final class QuotaTests: XCTestCase {
         "{\"usedPercent\":\(used),\"windowDurationMins\":\(minutes),\"resetsAt\":1800003600}"
     }
 
+    // [AI修改] 校验四种组合的读取门禁、关闭持久值和取消后禁止继续读取。
+    func testProviderSelectionAndCancellation() {
+        XCTAssertEqual(QuotaProviders(storedCodex: nil, storedClaude: nil), QuotaProviders(codex: true, claude: true))
+        for codex in [false, true] {
+            for claude in [false, true] {
+                let preferences = QuotaProviders(storedCodex: codex, storedClaude: claude)
+                XCTAssertEqual(preferences.hasEnabled, codex || claude)
+                let request = QuotaRefreshRequest(providers: preferences)
+                XCTAssertEqual(request.canReadCodex, codex)
+                XCTAssertEqual(request.canReadClaude, claude)
+                request.cancel()
+                XCTAssertTrue(request.isCancelled)
+                XCTAssertFalse(request.canReadCodex)
+                XCTAssertFalse(request.canReadClaude)
+            }
+        }
+    }
+
+    func testQuotaTimePresentationUsesOnlyFutureResets() {
+        let five = QuotaWindow(kind: .fiveHour, usedPercent: 10, resetsAt: now.addingTimeInterval(3600))
+        let seven = QuotaWindow(kind: .sevenDay, usedPercent: 20, resetsAt: now.addingTimeInterval(86_400))
+        let expired = QuotaWindow(kind: .fiveHour, usedPercent: 10, resetsAt: now)
+        XCTAssertEqual(QuotaTimePresentation.selected(mode: .nextReset, observed: nil, windows: [seven, five], now: now).label, "5时重置")
+        XCTAssertEqual(QuotaTimePresentation.selected(mode: .nextReset, observed: nil, windows: [expired, seven], now: now).label, "7天重置")
+        XCTAssertEqual(QuotaTimePresentation.selected(mode: .nextReset, observed: now, windows: [expired], now: now).value, "--")
+        XCTAssertEqual(QuotaTimePresentation.selected(mode: .observed, observed: nil, windows: [seven], now: now).value, "--:--:--")
+        let utc = TimeZone(secondsFromGMT: 0)!
+        XCTAssertEqual(QuotaTimePresentation.reset(Date(timeIntervalSince1970: 90_000), now: Date(timeIntervalSince1970: 43_200), zone: utc), "01/02 01:00")
+    }
+
     func testUsedSevenMeansRemainingNinetyThree() throws {
         XCTAssertEqual(try read(response(window(10080))).windows.first?.remainingText, "93%")
     }

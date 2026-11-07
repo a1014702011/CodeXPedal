@@ -24,6 +24,12 @@ public sealed class ProviderQuotaViewModel(string label) : INotifyPropertyChange
     public string SevenDayQuota { get; private set; } = "--";
 
     public string RefreshedAt { get; private set; } = "--:--:--";
+    // [AI修改] 同一行同时给紧凑栏和详情提供已选时间，以及各周期真实重置时间。
+    public string TimeLabel { get; private set; } = "最近获取";
+    public string TimeValue { get; private set; } = "--:--:--";
+    public string StripTime { get; private set; } = "--:--:--";
+    public string FiveHourReset { get; private set; } = "--";
+    public string SevenDayReset { get; private set; } = "--";
 
     // [AI修改] 没有 5 小时窗口时 7 天成为首列，去掉其左侧分隔线。
     public Thickness SevenDayBorder => HasFiveHourQuota ? new Thickness(1, 0, 0, 0) : new Thickness(0);
@@ -31,7 +37,7 @@ public sealed class ProviderQuotaViewModel(string label) : INotifyPropertyChange
     // [AI修改] placeholderBothWhenEmpty：尚无任何成功数据时同时显示 5 小时和 7 天的 “--”，
     // 避免把“还没读到”误显示成“没有 5 小时窗口”；读到数据后仍按官方返回的窗口决定。
     public void Update(bool visible, bool showLabel, QuotaWindow? fiveHour, QuotaWindow? sevenDay, DateTimeOffset? observedAt, bool stale,
-        bool placeholderBothWhenEmpty = false)
+        QuotaTimeMode timeMode, DateTimeOffset now, bool placeholderBothWhenEmpty = false)
     {
         IsVisible = visible;
         ShowLabel = showLabel;
@@ -39,6 +45,11 @@ public sealed class ProviderQuotaViewModel(string label) : INotifyPropertyChange
         FiveHourQuota = Text(fiveHour, stale);
         SevenDayQuota = Text(sevenDay, stale);
         RefreshedAt = observedAt is { } at ? UsageFormatter.Clock(at) : "--:--:--";
+        // [AI修改] 紧凑模式只显示一项重置时间，详情仍可分别显示两个周期。
+        (TimeLabel, TimeValue) = UsageFormatter.QuotaTime(timeMode, observedAt, fiveHour, sevenDay, now);
+        StripTime = timeMode == QuotaTimeMode.NextReset ? $"{TimeLabel} {TimeValue}" : TimeValue;
+        FiveHourReset = UsageFormatter.ResetTime(fiveHour?.ResetsAt, now);
+        SevenDayReset = UsageFormatter.ResetTime(sevenDay?.ResetsAt, now);
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
     }
 

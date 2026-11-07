@@ -2,6 +2,8 @@
   <!-- [AI修改] 使用无第三方依赖的控制台自测，确保离线环境也能执行。 -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- [AI修改] 额度布局回归直接加载生产 WPF 资源，不启动托盘或改写用户设置。 -->
+    <UseWPF>true</UseWPF>
     <!-- [AI修改] 测试与核心层使用同一通用 Windows TFM，保持离线可构建。 -->
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>CodeXPedal.Windows.Tests</RootNamespace>
@@ -9,5 +11,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\CodeXPedal.Windows.Core\CodeXPedal.Windows.Core.csproj" />
+    <ProjectReference Include="..\..\src\CodeXPedal.Windows.App\CodeXPedal.Windows.App.csproj" />
   </ItemGroup>
 </Project>

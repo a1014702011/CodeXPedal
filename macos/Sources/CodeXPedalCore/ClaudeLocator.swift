@@ -54,14 +54,4 @@ public enum ClaudeLocator {
     }
 }
 
-// [AI修改] 统一的安装探测：界面只显示本机实际安装的工具；两者都未探测到时保留 Codex 作为默认入口。
-public enum ProviderDetection {
-    public static func detect(codexPath: String) -> (codex: Bool, claude: Bool) {
-        var isDirectory: ObjCBool = false
-        let codexHome = FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.codex", isDirectory: &isDirectory) && isDirectory.boolValue
-        // [AI修改] 用户显式填写了 Codex 路径时始终显示 Codex 分组，便于看到路径错误提示。
-        let explicit = !codexPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let codex = codexHome || explicit || (try? CodexLocator.resolve(explicitPath: codexPath)) != nil
-        return (codex, ClaudeLocator.isInstalled())
-    }
-}
+// [AI修改] 联合探测已移除，刷新只定位勾选的来源，安装状态不决定界面可见性。

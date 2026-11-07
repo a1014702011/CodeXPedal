@@ -97,13 +97,4 @@ public static class ClaudeExecutableResolver
     }
 }
 
-// [AI修改] 统一的安装探测：界面只显示本机实际安装的工具；两者都没探测到时保留 Codex 分组作为默认入口。
-public static class ProviderDetection
-{
-    public static (bool Codex, bool Claude) Detect()
-    {
-        var codex = CodexExecutableResolver.Resolve() is not null
-            || Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex"));
-        return (codex, ClaudeExecutableResolver.IsInstalled());
-    }
-}
+// [AI修改] 不再联合探测两家工具；刷新入口按已启用来源单独定位。

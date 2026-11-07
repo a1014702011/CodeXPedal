@@ -8,7 +8,7 @@ macOS 13+，Apple Silicon/Intel独立构建。使用AppKit菜单栏、NSPanel横
 
 实时额度需要官方CLI已安装、登录并联网。设置路径优先于CODEXPEDAL_CODEX_PATH，再查桌面版/Homebrew/PATH；错误显式路径不偷偷回退。不读取认证文件或会话正文。
 
-Claude：自动查找Claude Code（CODEXPEDAL_CLAUDE_PATH、~/.local/bin、~/.claude/local、Homebrew、npm、~/Library/Application Support/Claude/claude-code版本目录、PATH），有CLI或~/.claude即显示Claude分组。两家都装时菜单栏为“Codex 5小时%/7天% Claude 5小时%/7天%”，横条两行；只装一个时外观不变。未安装或未登录Claude Code时启动询问一次，“安装并登录”会用“终端”执行官方`curl -fsSL https://claude.ai/install.sh | bash`与`claude auth login`（脚本写在~/Library/Caches/CodeXPedal），浏览器授权后自动开启实时读取；登录检测只查询钥匙串条目是否存在，不弹授权框。额度默认来自“实时读取”：从钥匙串“Claude Code-credentials”读取令牌（系统会询问，拒绝后暂停且不重复弹窗）调用官方usage接口，每分钟最多一次，可在设置中关闭；“Claude状态栏桥接”作为备选（设置中启用后需在终端版Claude Code发消息，应用可执行文件加--claude-statusline作为statusLine命令）。
+Claude：自动查找Claude Code（CODEXPEDAL_CLAUDE_PATH、~/.local/bin、~/.claude/local、Homebrew、npm、~/Library/Application Support/Claude/claude-code版本目录、PATH），设置中分别勾选 Codex 和 Claude 的显示与读取，默认双开。两家启用时横条两行；单家使用完整字号，两家关闭时显示空态并停读。时间可选最近获取或下次重置。未安装或未登录Claude Code时启动询问一次，“安装并登录”会用“终端”执行官方`curl -fsSL https://claude.ai/install.sh | bash`与`claude auth login`（脚本写在~/Library/Caches/CodeXPedal），浏览器授权后自动开启实时读取；登录检测只查询钥匙串条目是否存在，不弹授权框。额度默认来自“实时读取”：从钥匙串“Claude Code-credentials”读取令牌（系统会询问，拒绝后暂停且不重复弹窗）调用官方usage接口，每分钟最多一次，可在设置中关闭；“Claude状态栏桥接”作为备选（设置中启用后需在终端版Claude Code发消息，应用可执行文件加--claude-statusline作为statusLine命令）。
 
 开发需要Rust 1.97.1、Swift5.9+/Xcode命令行工具、Python3；用户不需要这些开发工具。make会先构建本架构Rust静态库，不动态链接开发机路径。
 

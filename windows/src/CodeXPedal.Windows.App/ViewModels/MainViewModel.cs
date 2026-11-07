@@ -56,16 +56,21 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public string ClaudeTodayTokens => UsageFormatter.Tokens(_snapshot.ClaudeLocal?.TodayTokens);
 
-    // [AI修改] 按本机实际安装情况决定显示哪些分组；两者都未探测到时保留 Codex 作为默认入口。
-    public bool ShowCodex => _snapshot.CodexDetected || !_snapshot.ClaudeDetected;
-
-    public bool ShowClaude => _snapshot.ClaudeDetected;
+    // [AI修改] 已勾选但暂时读不到也保留占位；关闭后所有入口同时隐藏。
+    public const string NoProviderText = "没有可获取的 AI";
+    public bool ShowCodex => _settings.CodexEnabled;
+    public bool ShowClaude => _settings.ClaudeEnabled;
+    public bool NoProviders => !_settings.HasEnabledProvider;
+    public bool CanRefresh => !NoProviders && !IsRefreshing;
+    public bool ShowResetTimes => _settings.QuotaTimeMode == QuotaTimeMode.NextReset;
+    public bool ShowObservedTimes => !ShowResetTimes;
+    public bool ShowCodexObservedTime => ShowCodex && ShowObservedTimes;
 
     public bool ShowBoth => ShowCodex && ShowClaude;
 
     public bool ShowCodexTokens => IsFull && ShowCodex;
 
-    public string HeaderSubtitle => ShowBoth ? "Codex · Claude · 剩余额度" : ShowClaude ? "Claude · 剩余额度" : "Codex · 剩余额度";
+    public string HeaderSubtitle => NoProviders ? "剩余额度" : ShowBoth ? "Codex · Claude · 剩余额度" : ShowClaude ? "Claude · 剩余额度" : "Codex · 剩余额度";
 
     public ProviderQuotaViewModel CodexRow { get; } = new("Codex");
 
@@ -104,9 +109,20 @@ public sealed class MainViewModel : INotifyPropertyChanged
             ? "Codex Token 统计：今日/7天按会话记录 · 累计按本机任务汇总"
             : "Codex Token 统计：按本机任务更新时间汇总";
 
-    public string Diagnostics => _snapshot.Diagnostics.Count == 0
-        ? "数据读取正常"
-        : string.Join(Environment.NewLine, _snapshot.Diagnostics);
+    public string Diagnostics
+    {
+        get
+        {
+            if (NoProviders) { return NoProviderText; }
+            // [AI修改] 关闭后不暴露旧的对应来源诊断，等待首次有效读取时也不误称正常。
+            var notes = (ShowCodex ? _snapshot.CodexDiagnostics : [])
+                .Concat(ShowClaude ? _snapshot.ClaudeDiagnostics : []).ToArray();
+            if (notes.Length > 0) { return string.Join(Environment.NewLine, notes); }
+            if (_snapshot.QuotaObservedAt is null && _snapshot.ClaudeQuota.ObservedAt is null
+                && _snapshot.Diagnostics.Count > 0) { return "等待额度数据"; }
+            return "数据读取正常";
+        }
+    }
 
     public bool IsCompact => _settings.CompactMode;
 
@@ -115,7 +131,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public bool IsRefreshing
     {
         get => _isRefreshing;
-        set => SetField(ref _isRefreshing, value);
+        set
+        {
+            if (SetField(ref _isRefreshing, value)) { OnPropertyChanged(nameof(CanRefresh)); }
+        }
     }
 
     public void ApplySnapshot(UsageSnapshot snapshot)
@@ -131,9 +150,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(Settings));
         OnPropertyChanged(nameof(IsCompact));
         OnPropertyChanged(nameof(IsFull));
-        OnPropertyChanged(nameof(ShowCodexTokens));
-        UpdateRows();
+        // [AI修改] 设置改变即更新所有输出，不依赖后台请求成功。
+        RaiseSnapshotProperties();
         SettingsChanged?.Invoke(this, EventArgs.Empty);
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public void ToggleCompact() => ApplySettings(_settings with { CompactMode = !_settings.CompactMode });
@@ -146,10 +166,13 @@ public sealed class MainViewModel : INotifyPropertyChanged
     // [AI修改] 两行额度在同一处按快照刷新，所有入口读到的是同一份结果。
     private void UpdateRows()
     {
-        CodexRow.Update(ShowCodex, ShowClaude, _snapshot.FiveHourQuota, _snapshot.SevenDayQuota, _snapshot.QuotaObservedAt, QuotaStale);
+        var now = DateTimeOffset.Now;
+        CodexRow.Update(ShowCodex, ShowBoth, _snapshot.FiveHourQuota, _snapshot.SevenDayQuota, _snapshot.QuotaObservedAt,
+            QuotaStale, _settings.QuotaTimeMode, now);
         var claude = _snapshot.ClaudeQuota;
         // [AI修改] Claude 订阅（Pro/Max）都有 5 小时与 7 天窗口，未读到数据前两格都显示 “--”。
-        ClaudeRow.Update(ShowClaude, ShowClaude, claude.FiveHourQuota, claude.SevenDayQuota, claude.ObservedAt, ClaudeStale, placeholderBothWhenEmpty: true);
+        ClaudeRow.Update(ShowClaude, ShowClaude, claude.FiveHourQuota, claude.SevenDayQuota, claude.ObservedAt,
+            ClaudeStale, _settings.QuotaTimeMode, now, placeholderBothWhenEmpty: true);
     }
 
     private void RaiseSnapshotProperties()
@@ -159,6 +182,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(ShowCodex));
         OnPropertyChanged(nameof(ShowClaude));
         OnPropertyChanged(nameof(ShowBoth));
+        OnPropertyChanged(nameof(NoProviders));
+        OnPropertyChanged(nameof(CanRefresh));
+        OnPropertyChanged(nameof(ShowResetTimes));
+        OnPropertyChanged(nameof(ShowObservedTimes));
+        OnPropertyChanged(nameof(ShowCodexObservedTime));
         OnPropertyChanged(nameof(ShowCodexTokens));
         OnPropertyChanged(nameof(HeaderSubtitle));
         OnPropertyChanged(nameof(ClaudeFiveHourQuota));

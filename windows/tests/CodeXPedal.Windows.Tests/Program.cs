@@ -1,4 +1,7 @@
 // [AI修改] 使用无第三方依赖的红绿自测覆盖额度分类、缺失值和显示格式。
+// [AI修改] WPF 测试项目的隐式引用不包含 I/O 与 HTTP，显式保留原有假接口测试依赖。
+using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using System.Runtime.InteropServices;
 using CodeXPedal.Windows.Core.Formatting;
@@ -80,6 +83,15 @@ var tests = new (string Name, Action Run)[]
     ("缺失值显示短横线", FormatsMissingValues),
     ("初始额度来源不可用", InitializesQuotaSource),
     ("更新时间精确到秒", FormatsClockToSeconds),
+    // [AI修改] 四种组合使用真实刷新入口；另测旧配置、取消与重置显示。
+    ("旧设置默认双开并保存显式关闭", PersistsQuotaDisplaySettings),
+    ("双开时两家都获取", () => ReadsSelectedProviders(true, true)),
+    ("只开 Codex 时不读取 Claude", () => ReadsSelectedProviders(true, false)),
+    ("只开 Claude 时不读取 Codex", () => ReadsSelectedProviders(false, true)),
+    ("双关时不探测或获取额度", () => ReadsSelectedProviders(false, false)),
+    ("刷新中关闭阻止旧结果并可重新启用", ReplacesCancelledProviderRefresh),
+    ("时间显示选择最近重置并处理日期及缺失", FormatsQuotaTimeMode),
+    ("WPF 额度布局与时间下拉框深色样式", RendersSelectedProviderViews),
     ("设置范围归一化", NormalizesSettings),
     ("仅任务栏模式保留入口", NormalizesTaskbarOnlyMode),
     ("任务栏字体随高度放大", ScalesTaskbarFont),
@@ -402,6 +414,255 @@ static void WithLocalQuotaFixture(Action<string, DateTimeOffset> test)
         File.Delete(Path.Combine(directory, "session.jsonl"));
         Directory.Delete(directory, recursive: false);
     }
+}
+
+// [AI修改] 读写生产设置仓库，包括无窗口坐标的首次保存。
+static void PersistsQuotaDisplaySettings() => WithTempDirectory(directory =>
+{
+    var path = Path.Combine(directory, "settings.json");
+    File.WriteAllText(path, """{"claudeLiveQuota":false}""");
+    var store = new SettingsStore(path);
+    var old = store.LoadAsync().GetAwaiter().GetResult();
+    Assert(old.CodexEnabled && old.ClaudeEnabled && !old.ClaudeLiveQuota, "旧配置应默认双开并保留数据来源");
+    AssertEqual(QuotaTimeMode.Observed, old.QuotaTimeMode, "默认显示最近获取时间");
+    store.SaveAsync(old with { CodexEnabled = false, ClaudeEnabled = false, QuotaTimeMode = QuotaTimeMode.NextReset }).GetAwaiter().GetResult();
+    var settings = store.LoadAsync().GetAwaiter().GetResult();
+    Assert(!settings.HasEnabledProvider && !settings.CodexEnabled && !settings.ClaudeEnabled, "重开后保留两个关闭项");
+    AssertEqual(QuotaTimeMode.NextReset, settings.QuotaTimeMode, "保留时间模式");
+});
+
+static void ReadsSelectedProviders(bool codex, bool claude) => WithTempDirectory(directory =>
+{
+    // [AI修改] Codex 用真实假CLI、Claude 用隔离的官方格式缓存；不接触实际账号或统计库。
+    var prior = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+    try
+    {
+        Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", directory);
+        File.WriteAllText(Path.Combine(directory, "codexpedal-rate-limits.json"), """{"rate_limits":{"seven_day":{"used_percentage":24}}}""");
+        WithFakeScenario("normal", _ =>
+        {
+            var localReads = 0;
+            using var service = new UsageSnapshotService((_, _) => { localReads++; return null; });
+            var options = new AppSettings { CodexEnabled = codex, ClaudeEnabled = claude, ClaudeLiveQuota = false };
+            var result = service.RefreshAsync(options, CancellationToken.None).GetAwaiter().GetResult();
+            AssertEqual(codex ? 93D : (double?)null, result.SevenDayQuota?.RemainingPercent, "Codex 额度");
+            AssertEqual(claude ? 76D : (double?)null, result.ClaudeQuota.SevenDayQuota?.RemainingPercent, "Claude 额度");
+            AssertEqual(codex ? 1 : 0, localReads, "只读取启用项的本地统计");
+            AssertEqual(claude, result.ClaudeDetected, "未启用不探测 Claude");
+            if (!codex && !claude) { AssertEqual(0, result.Diagnostics.Count, "双关没有数据读取诊断"); }
+        });
+    }
+    finally { Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", prior); }
+});
+
+static void ReplacesCancelledProviderRefresh() => WithFakeScenario("silent", _client =>
+{
+    // [AI修改] 取消正在等待官方子进程的一轮，下一轮只按当前设置运行。
+    var localReads = 0;
+    using var service = new UsageSnapshotService((_, _) => { localReads++; return null; });
+    using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+    var active = service.RefreshAsync(new AppSettings { ClaudeEnabled = false }, cancellation.Token);
+    try { _ = active.GetAwaiter().GetResult(); throw new InvalidOperationException("应拒绝旧请求"); }
+    catch (OperationCanceledException) { }
+    var empty = service.RefreshAsync(new AppSettings { CodexEnabled = false, ClaudeEnabled = false }, CancellationToken.None).GetAwaiter().GetResult();
+    Assert(empty.QuotaObservedAt is null && empty.ClaudeQuota.ObservedAt is null && localReads == 0, "关闭后无额度或本地读取");
+    Environment.SetEnvironmentVariable("CODEXPEDAL_FAKE_SCENARIO", "normal");
+    var resumed = service.RefreshAsync(new AppSettings { ClaudeEnabled = false }, CancellationToken.None).GetAwaiter().GetResult();
+    AssertEqual(93D, resumed.SevenDayQuota?.RemainingPercent, "重新开启后取得新的真实协议响应");
+    AssertEqual(1, localReads, "只在重新启用后读取统计");
+});
+
+static void FormatsQuotaTimeMode()
+{
+    // [AI修改] 显式给定本地正午，使同日、跨日和过去时间在任意时区都可复现。
+    var now = new DateTimeOffset(new DateTime(2026, 11, 6, 12, 0, 0, DateTimeKind.Local));
+    var five = new QuotaWindow(QuotaWindowKind.FiveHour, 10, 300, now.AddHours(1));
+    var seven = new QuotaWindow(QuotaWindowKind.SevenDay, 20, 10080, now.AddDays(1));
+    AssertEqual(("最近获取", "11:59:59"), UsageFormatter.QuotaTime(QuotaTimeMode.Observed, now.AddSeconds(-1), five, seven, now), "采样时间精确到秒");
+    AssertEqual(("5时重置", "13:00"), UsageFormatter.QuotaTime(QuotaTimeMode.NextReset, null, five, seven, now), "选择最早未来重置");
+    AssertEqual(("7天重置", "11/07 12:00"), UsageFormatter.QuotaTime(QuotaTimeMode.NextReset, null, five with { ResetsAt = now }, seven, now), "忽略已到期并附日期");
+    AssertEqual(("下次重置", "--"), UsageFormatter.QuotaTime(QuotaTimeMode.NextReset, null, null, null, now), "缺失不猜测");
+}
+
+// [AI修改] 真实 WPF 绑定与布局走 STA，不显示窗口、不启动应用刷新或 Explorer 操作。
+static void RendersSelectedProviderViews()
+{
+    Exception? failure = null;
+    var worker = new Thread(() =>
+    {
+        try
+        {
+            var app = new CodeXPedal.Windows.App.App();
+            app.InitializeComponent();
+            // [AI修改] 在同一 STA 应用环境检查实际样式，不启动正式设置窗口或读取账号状态。
+            VerifyQuotaTimeComboBoxStyle(app);
+            var settings = new AppSettings { CompactMode = true };
+            var model = new CodeXPedal.Windows.App.ViewModels.MainViewModel(settings);
+            var now = DateTimeOffset.Now;
+            var quota = new QuotaWindow(QuotaWindowKind.SevenDay, 10, 10080, now.AddDays(2));
+            model.ApplySnapshot(UsageSnapshot.Empty(now) with
+            {
+                SevenDayQuota = quota,
+                QuotaObservedAt = now,
+                ClaudeQuota = new ClaudeQuotaSnapshot(null, quota, ClaudeQuotaSource.StatusLine, now, false),
+                CodexDiagnostics = ["Codex 测试诊断"],
+                ClaudeDiagnostics = ["Claude 测试诊断"],
+            });
+            var floating = new CodeXPedal.Windows.App.Views.FloatingWindow(model, _ => Task.CompletedTask, () => { }, () => { }, () => { });
+            var details = new CodeXPedal.Windows.App.Views.DetailsWindow(model);
+            // [AI修改] 不运行桌面消息循环时，用 XAML 声明的路径和转换器，显式连接同一个生产模型。
+            var rows = new[] { "CodexQuotaRow", "ClaudeQuotaRow", "EmptyQuotaRow" }.Select(name =>
+            {
+                var row = (System.Windows.FrameworkElement)floating.FindName(name);
+                var declared = row.GetBindingExpression(System.Windows.UIElement.VisibilityProperty)?.ParentBinding
+                    ?? throw new InvalidOperationException($"缺少 {name} 的可见性绑定");
+                var expression = row.SetBinding(System.Windows.UIElement.VisibilityProperty, new System.Windows.Data.Binding
+                {
+                    Source = model,
+                    Path = declared.Path,
+                    Converter = declared.Converter,
+                });
+                if (row is System.Windows.Controls.ContentControl control)
+                {
+                    // [AI修改] 未装载到桌面时显式提供模板内容，仍使用生产 DataTemplate 测量。
+                    var contentPath = control.GetBindingExpression(System.Windows.Controls.ContentControl.ContentProperty)?.ParentBinding.Path
+                        ?? throw new InvalidOperationException($"缺少 {name} 的内容绑定");
+                    control.SetBinding(System.Windows.Controls.ContentControl.ContentProperty,
+                        new System.Windows.Data.Binding { Source = model, Path = contentPath }).UpdateTarget();
+                }
+                return (Name: name, Element: row, Expression: expression);
+            }).ToArray();
+            double MeasureHeight()
+            {
+                foreach (var row in rows)
+                {
+                    row.Expression.UpdateTarget();
+                    var expected = row.Name switch
+                    {
+                        "CodexQuotaRow" => model.ShowCodex,
+                        "ClaudeQuotaRow" => model.ShowClaude,
+                        _ => model.NoProviders,
+                    };
+                    AssertEqual(expected ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed, row.Element.Visibility, row.Name);
+                }
+                // [AI修改] 直接测量额度行容器，避开未显示窗口的顶层缓存尺寸。
+                var content = (System.Windows.FrameworkElement)floating.FindName("QuotaRowsPanel");
+                content.InvalidateMeasure();
+                content.Measure(new System.Windows.Size(500, double.PositiveInfinity));
+                content.Arrange(new System.Windows.Rect(0, 0, 500, content.DesiredSize.Height));
+                return content.DesiredSize.Height;
+            }
+            var dualHeight = MeasureHeight();
+            Assert(model.CodexRow.IsVisible && model.ClaudeRow.IsVisible, "默认显示两家");
+            model.ApplySettings(settings with { ClaudeEnabled = false, QuotaTimeMode = QuotaTimeMode.NextReset });
+            var codexHeight = MeasureHeight();
+            Assert(model.CodexRow.IsVisible && !model.ClaudeRow.IsVisible && codexHeight < dualHeight, $"Codex 独占一行，双行 {dualHeight}，单行 {codexHeight}");
+            Assert(model.CodexRow.StripTime.StartsWith("7天重置", StringComparison.Ordinal) && model.ShowResetTimes, "时间选项立即作用于同一快照");
+            Assert(!model.Diagnostics.Contains("Claude", StringComparison.Ordinal), "隐藏 Claude 诊断");
+            model.ApplySettings(settings with { CodexEnabled = false });
+            Assert(!model.CodexRow.IsVisible && model.ClaudeRow.IsVisible && Math.Abs(MeasureHeight() - codexHeight) < 1, "Claude 独占同样高度");
+            model.ApplySettings(settings with { CodexEnabled = false, ClaudeEnabled = false });
+            Assert(model.NoProviders && !model.CanRefresh && model.Diagnostics == "没有可获取的 AI", "空态不可刷新");
+            Assert(MeasureHeight() < dualHeight, "空态不保留两行高度");
+            var detailContent = (System.Windows.FrameworkElement)details.Content;
+            detailContent.Measure(new System.Windows.Size(640, 700));
+            detailContent.Arrange(new System.Windows.Rect(0, 0, 640, 700));
+            details.Close();
+            floating.CloseForExit();
+            app.Shutdown();
+        }
+        catch (Exception error) { failure = error; }
+    }) { IsBackground = true };
+    worker.SetApartmentState(ApartmentState.STA);
+    worker.Start();
+    if (!worker.Join(TimeSpan.FromSeconds(15))) { throw new InvalidOperationException("WPF 布局验证超时"); }
+    if (failure is not null) { throw new InvalidOperationException($"WPF 布局验证失败：{failure}", failure); }
+}
+
+// [AI修改] 检查真实 WPF 模板的默认、展开、选中、禁用配色及展开绑定；可选输出离屏预览。
+static void VerifyQuotaTimeComboBoxStyle(System.Windows.Application app)
+{
+    var combo = new System.Windows.Controls.ComboBox
+    {
+        Style = (System.Windows.Style)app.FindResource("QuotaTimeComboBoxStyle"),
+        Width = 330,
+    };
+    combo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = "最近获取时间" });
+    combo.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = "下次额度重置时间" });
+    combo.SelectedIndex = 0;
+    combo.ApplyTemplate();
+    combo.Measure(new System.Windows.Size(330, 40));
+    combo.Arrange(new System.Windows.Rect(0, 0, 330, 40));
+    Assert(!app.Resources.Contains(typeof(System.Windows.Controls.ComboBox)), "专用样式不得影响其他下拉框");
+    var toggle = (System.Windows.Controls.Primitives.ToggleButton)combo.Template.FindName("DropDownToggle", combo);
+    toggle.ApplyTemplate();
+    var chrome = (System.Windows.Controls.Border)toggle.Template.FindName("ToggleChrome", toggle);
+    var dropdown = (System.Windows.Controls.Border)combo.Template.FindName("DropDownBorder", combo);
+    var popup = (System.Windows.Controls.Primitives.Popup)combo.Template.FindName("PART_Popup", combo);
+    Assert(popup is not null && combo.Focusable && !toggle.Focusable, "保留 ComboBox 的键盘入口和标准弹出部件");
+    var openBinding = toggle.GetBindingExpression(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty)?.ParentBinding;
+    AssertEqual(System.Windows.Data.BindingMode.TwoWay, openBinding?.Mode, "鼠标展开保持双向绑定");
+    AssertContrast(combo.Foreground, chrome.Background, "收起状态");
+    AssertContrast(combo.Foreground, dropdown.Background, "展开列表");
+    SaveVisual(combo, "quota-time-closed");
+
+    foreach (var selected in new[] { false, true })
+    {
+        // [AI修改] 独立装载同一生产条目模板，无需弹出真实菜单或改变用户桌面。
+        var item = new System.Windows.Controls.ComboBoxItem
+        {
+            Style = combo.ItemContainerStyle,
+            Content = selected ? "下次额度重置时间" : "最近获取时间",
+            Width = 330,
+            IsSelected = selected,
+        };
+        item.ApplyTemplate();
+        var itemChrome = (System.Windows.Controls.Border)item.Template.FindName("ItemChrome", item);
+        AssertContrast(item.Foreground, itemChrome.Background, selected ? "选中条目" : "普通条目");
+        Assert(item.Template.Triggers.OfType<System.Windows.Trigger>()
+            .Any(trigger => trigger.Property == System.Windows.Controls.ComboBoxItem.IsHighlightedProperty), "悬停项有独立深色高亮");
+        SaveVisual(item, selected ? "quota-time-selected" : "quota-time-option");
+        item.IsEnabled = false;
+        Assert(itemChrome.Opacity < 1 && itemChrome.Opacity >= 0.5, "禁用条目降低透明度而非改成白底");
+        AssertContrast(item.Foreground, itemChrome.Background, "禁用条目");
+    }
+
+    combo.SelectedIndex = 1;
+    AssertEqual("下次额度重置时间", ((System.Windows.Controls.ComboBoxItem)combo.SelectedItem).Content, "两个选项仍可切换");
+    combo.IsEnabled = false;
+    var root = (System.Windows.Controls.Grid)combo.Template.FindName("ComboRoot", combo);
+    Assert(root.Opacity < 1 && root.Opacity >= 0.5, "禁用状态保持深色并降低透明度");
+    SaveVisual(combo, "quota-time-disabled");
+}
+
+// [AI修改] 将浅色文字与实际背景对比，防止后续主题调整重新出现白底白字。
+static void AssertContrast(System.Windows.Media.Brush foreground, System.Windows.Media.Brush background, string state)
+{
+    Assert(foreground is System.Windows.Media.SolidColorBrush && background is System.Windows.Media.SolidColorBrush, state + "应使用明确的单色背景与文字");
+    var text = ((System.Windows.Media.SolidColorBrush)foreground).Color;
+    var fill = ((System.Windows.Media.SolidColorBrush)background).Color;
+    static double Channel(byte value) => value / 255D <= 0.04045D ? value / 255D / 12.92D : Math.Pow((value / 255D + 0.055D) / 1.055D, 2.4D);
+    static double Light(System.Windows.Media.Color color) => 0.2126D * Channel(color.R) + 0.7152D * Channel(color.G) + 0.0722D * Channel(color.B);
+    var ratio = (Math.Max(Light(text), Light(fill)) + 0.05D) / (Math.Min(Light(text), Light(fill)) + 0.05D);
+    Assert(fill.A == 255 && ratio >= 4.5D, $"{state}文字对比度不足：{ratio:0.00}");
+}
+
+// [AI修改] 仅在测试显式传入临时输出目录时生成样式预览，不修改用户配置。
+static void SaveVisual(System.Windows.FrameworkElement visual, string name)
+{
+    var directory = Environment.GetEnvironmentVariable("CODEXPEDAL_TEST_VISUAL_DIR");
+    if (string.IsNullOrWhiteSpace(directory)) { return; }
+    visual.Measure(new System.Windows.Size(330, double.PositiveInfinity));
+    var height = Math.Max(32D, visual.DesiredSize.Height);
+    visual.Arrange(new System.Windows.Rect(0, 0, 330, height));
+    visual.UpdateLayout();
+    var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(330, (int)Math.Ceiling(height), 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+    bitmap.Render(visual);
+    var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+    encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+    Directory.CreateDirectory(directory);
+    using var output = File.Create(Path.Combine(directory, name + ".png"));
+    encoder.Save(output);
 }
 
 static void FormatsMissingValues()

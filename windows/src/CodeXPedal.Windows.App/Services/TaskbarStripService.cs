@@ -33,6 +33,9 @@ public sealed partial class TaskbarStripService : IDisposable
     // [AI修改] Codex 与 Claude 各一行；两者同时显示时上下两行排列，只有一个时保持原单行外观。
     private StripRow? _codexRow;
     private StripRow? _claudeRow;
+    // [AI修改] Explorer 重建宿主时使用当前设置，不恢复默认 Codex 行。
+    private MainViewModel? _viewModel;
+    private TextBlock? _empty;
     private bool _dualLayout;
     private IntPtr _reservedTaskList;
     private IntPtr _reservedTaskListParent;
@@ -64,6 +67,7 @@ public sealed partial class TaskbarStripService : IDisposable
     public void SetVisible(bool visible, MainViewModel? viewModel)
     {
         _visible = visible;
+        _viewModel = viewModel;
         if (!visible)
         {
             DestroyHost();
@@ -84,16 +88,22 @@ public sealed partial class TaskbarStripService : IDisposable
             return;
         }
 
+        _viewModel = viewModel;
         EnsureHost();
-        // [AI修改] 只有官方或同一条本地快照真实返回 5 小时窗口时才占用任务栏空间。
+    }
+
+    // [AI修改] 每次定位前应用当前行数及时间，单行使用全高，零行使用明确空态。
+    private void ApplyRows()
+    {
+        if (_viewModel is not { } viewModel) { return; }
         _codexRow?.Apply(viewModel.CodexRow);
         _claudeRow?.Apply(viewModel.ClaudeRow);
         _dualLayout = viewModel.ShowBoth;
-
-        if (_source is not null && NativeMethods.IsWindow(_source.Handle))
+        if (_empty is not null)
         {
-            PositionHost(_source.Handle);
+            _empty.Visibility = viewModel.NoProviders ? Visibility.Visible : Visibility.Collapsed;
         }
+
     }
 
     public void Dispose()
@@ -111,6 +121,7 @@ public sealed partial class TaskbarStripService : IDisposable
 
         if (_source is not null && NativeMethods.IsWindow(_source.Handle))
         {
+            ApplyRows();
             PositionHost(_source.Handle);
             return;
         }
@@ -123,6 +134,7 @@ public sealed partial class TaskbarStripService : IDisposable
         }
 
         _rootVisual = CreateVisual();
+        ApplyRows();
         UpdateTypography(taskbar);
         UpdateHorizontalWidth(taskbar);
         if (!TryGetHostBounds(taskbar, _horizontalWidth, out var x, out var y, out var width, out var height))
@@ -167,6 +179,10 @@ public sealed partial class TaskbarStripService : IDisposable
         // [AI修改] 任务栏保留当前实际存在的额度窗口和更新时间，不再显示月额度。
         panel.Children.Add(_codexRow.Panel);
         panel.Children.Add(_claudeRow.Panel);
+        _empty = CreateTextBlock(Colors.WhiteSmoke);
+        _empty.Text = MainViewModel.NoProviderText;
+        _empty.Visibility = Visibility.Collapsed;
+        panel.Children.Add(_empty);
 
         var border = new Border
         {
@@ -176,7 +192,8 @@ public sealed partial class TaskbarStripService : IDisposable
             SnapsToDevicePixels = true,
             BorderBrush = new SolidColorBrush(MediaColor.FromRgb(66, 82, 98)),
             BorderThickness = new Thickness(1, 0, 1, 0),
-            Child = panel,
+            // [AI修改] 重置日期较长时在已安全预留的区域内缩放，不裁切文字或扩大覆盖范围。
+            Child = new Viewbox { Child = panel, StretchDirection = StretchDirection.DownOnly },
             Cursor = System.Windows.Input.Cursors.Hand,
         };
         border.MouseLeftButtonUp += (_, _) => _showFloatingWindow();
@@ -538,6 +555,7 @@ public sealed partial class TaskbarStripService : IDisposable
         _rootVisual = null;
         _codexRow = null;
         _claudeRow = null;
+        _empty = null;
         _fontSize = TaskbarStripLayout.MinimumFontSize;
         _horizontalWidth = 180;
     }
@@ -567,6 +585,7 @@ public sealed partial class TaskbarStripService : IDisposable
         var separatorHeight = Math.Min(logicalTaskbarHeight * (_dualLayout ? 0.31D : 0.62D), fontSize * 0.92D);
         _codexRow.SetTypography(fontSize, separatorHeight);
         _claudeRow.SetTypography(fontSize, separatorHeight);
+        if (_empty is not null) { _empty.FontSize = fontSize; }
     }
 
     // [AI修改] 每次定位后按窗口实际物理尺寸换算为本窗口的逻辑尺寸，强制底块撑满窗口，内容始终垂直居中。
@@ -671,7 +690,8 @@ public sealed partial class TaskbarStripService : IDisposable
             FiveHour.Visibility = row.HasFiveHourQuota ? Visibility.Visible : Visibility.Collapsed;
             FiveHourSeparator.Visibility = FiveHour.Visibility;
             SevenDay.Text = $"7天 {row.SevenDayQuota}";
-            UpdatedAt.Text = row.RefreshedAt;
+            // [AI修改] 任务栏只显示时间值，省去重置周期前缀；托盘提示仍保留说明。
+            UpdatedAt.Text = row.TimeValue;
         }
 
         public void SetTypography(double fontSize, double separatorHeight)

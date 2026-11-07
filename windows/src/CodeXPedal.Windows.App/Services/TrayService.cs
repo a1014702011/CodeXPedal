@@ -11,7 +11,7 @@ public sealed class TrayService : IDisposable
     private readonly Forms.NotifyIcon _notifyIcon;
 
     // [AI修改] 第一项随悬浮窗状态切换“显示/隐藏悬浮窗”，打开菜单时读取实际可见性。
-    public TrayService(Action show, Action hide, Func<bool> isFloatingVisible, Func<Task> refresh, Action details, Action settings, Action exit)
+    public TrayService(Action show, Action hide, Func<bool> isFloatingVisible, Func<Task> refresh, Func<bool> canRefresh, Action details, Action settings, Action exit)
     {
         var menu = new Forms.ContextMenuStrip();
         var toggle = new Forms.ToolStripMenuItem("显示悬浮窗");
@@ -22,7 +22,9 @@ public sealed class TrayService : IDisposable
         };
         menu.Items.Add(toggle);
         menu.Opening += (_, _) => toggle.Text = isFloatingVisible() ? "隐藏悬浮窗" : "显示悬浮窗";
-        menu.Items.Add("立即刷新", null, async (_, _) => await refresh());
+        // [AI修改] 托盘仍保留设置入口，但未启用额度时不可刷新。
+        var refreshItem = menu.Items.Add("立即刷新", null, async (_, _) => await refresh());
+        menu.Opening += (_, _) => refreshItem.Enabled = canRefresh();
         menu.Items.Add("详情", null, (_, _) => details());
         menu.Items.Add("设置", null, (_, _) => settings());
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -45,10 +47,11 @@ public sealed class TrayService : IDisposable
         foreach (var row in new[] { viewModel.CodexRow, viewModel.ClaudeRow }.Where(row => row.IsVisible))
         {
             var fiveHour = row.HasFiveHourQuota ? $"5h {row.FiveHourQuota} " : string.Empty;
-            lines.Add($"{(row.ShowLabel ? row.Label : "CodeXPedal")} {fiveHour}7d {row.SevenDayQuota} {row.RefreshedAt}");
+            lines.Add($"{(row.ShowLabel ? row.Label : "CodeXPedal")} {fiveHour}7d {row.SevenDayQuota} {row.StripTime}");
         }
 
-        var text = string.Join("\n", lines);
+        // [AI修改] 两家关闭仍显示明确的空状态。
+        var text = viewModel.NoProviders ? MainViewModel.NoProviderText : string.Join("\n", lines);
         // [AI修改] 沿用 63 字符上限，兼容所有 WinForms 版本的托盘提示长度限制。
         _notifyIcon.Text = text.Length > 63 ? text[..63] : text;
     }

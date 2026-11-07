@@ -13,7 +13,21 @@ import CodeXPedalCore
     @Published var claudeLive: Bool { didSet { defaults.set(claudeLive, forKey: "claudeLive") } }
     // [AI修改] 用户在“安装并登录 Claude Code”弹窗中选择“不再提示”后不再在启动时询问。
     @Published var claudeSetupDismissed: Bool { didSet { defaults.set(claudeSetupDismissed, forKey: "claudeSetupDismissed") } }
+    // [AI修改] 保存两个独立开关；旧配置缺项时默认开启。时间样式只用于展示。
+    @Published var providers: QuotaProviders {
+        didSet {
+            guard providers != oldValue else { return }
+            defaults.set(providers.codex, forKey: "codexEnabled")
+            defaults.set(providers.claude, forKey: "claudeEnabled")
+            onProvidersChanged?()
+        }
+    }
+    @Published var quotaTimeMode: QuotaTimeMode { didSet { defaults.set(quotaTimeMode.rawValue, forKey: "quotaTimeMode") } }
+    var onProvidersChanged: (() -> Void)?
     init() {
+        providers = QuotaProviders(storedCodex: defaults.object(forKey: "codexEnabled"),
+                                  storedClaude: defaults.object(forKey: "claudeEnabled"))
+        quotaTimeMode = QuotaTimeMode(rawValue: defaults.string(forKey: "quotaTimeMode") ?? "") ?? .observed
         menuOnly = defaults.bool(forKey: "menuOnly")
         let font = defaults.double(forKey: "fontSize")
         fontSize = font.isFinite && (20...42).contains(font) ? font : 28
@@ -38,7 +52,11 @@ struct ProviderRow: Identifiable {
     let showLabel: Bool
     let windows: [QuotaWindow]
     let stale: Bool
-    let updatedAt: String
+    // [AI修改] 紧凑视图用选定的时间，详情按每个窗口展示重置时间。
+    let timeLabel: String
+    let timeValue: String
+    let timeMode: QuotaTimeMode
+    var stripTime: String { timeMode == .nextReset ? "\(timeLabel) \(timeValue)" : timeValue }
     let status: String
     let source: String
     func value(for window: QuotaWindow) -> String { (stale ? "≈" : "") + window.remainingText }
@@ -46,11 +64,10 @@ struct ProviderRow: Identifiable {
 
 @MainActor final class QuotaStore: ObservableObject {
     @Published private(set) var state = QuotaDisplayState()
-    // [AI修改] Claude 额度独立保存快照、错误与来源；安装探测决定显示哪些分组。
+    // [AI修改] Claude 额度独立保存快照、错误与来源；安装探测只影响状态提示。
     @Published private(set) var claudeState = QuotaDisplayState()
     @Published private(set) var claudeSource: ClaudeQuotaSource = .unavailable
-    @Published private(set) var codexDetected = true
-    @Published private(set) var claudeDetected = false
+    @Published private(set) var claudeDetected: Bool?
     @Published private(set) var isRefreshing = false
     @Published private(set) var clock = Date()
     @Published private(set) var cliName = "尚未定位"
@@ -61,26 +78,29 @@ struct ProviderRow: Identifiable {
     private var claudeSetupTimer: Timer?
     private var claudeSetupDeadline = Date.distantPast
     private var stopped = false
-    private var generation = 0
+    // [AI修改] 同一轮请求用于后台门禁和主线程旧结果隔离。
+    private var activeRequest: QuotaRefreshRequest?
+    private var resetClaudeThrottle = false
     init(preferences: Preferences) {
         self.preferences = preferences
-        // [AI修改] 启动时先探测安装情况，避免只装 Claude 的用户首帧看到空的 Codex 行。
-        let detected = ProviderDetection.detect(codexPath: preferences.cliPath)
-        codexDetected = detected.codex; claudeDetected = detected.claude
+        preferences.onProvidersChanged = { [weak self] in self?.providersChanged() }
     }
-    var showCodex: Bool { codexDetected || !claudeDetected }
-    var showClaude: Bool { claudeDetected }
+    var hasProviders: Bool { preferences.providers.hasEnabled }
+    var canRefresh: Bool { hasProviders && !isRefreshing && !stopped }
+
+    private func providersChanged() {
+        if !preferences.providers.claude {
+            claudeSetupTimer?.invalidate(); claudeSetupTimer = nil
+        }
+        if !stopped { start() }
+    }
     var stale: Bool { state.isStale(at: clock, refreshInterval: preferences.refreshSeconds) }
     var claudeStale: Bool { claudeState.isStale(at: clock, refreshInterval: preferences.refreshSeconds) }
     var windows: [QuotaWindow] { state.snapshot?.windows ?? [] }
-    var updatedAt: String { Self.clockText(state.snapshot?.observedAt) }
-    private static func clockText(_ date: Date?) -> String {
-        guard let date else { return "--:--:--" }
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_GB"); formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: date)
-    }
+    // [AI修改] 未安装只影响已勾选分组的提示，不再决定显示哪一家。
     var claudeStatus: String {
         if isRefreshing { return "正在读取 Claude 额度…" }
+        if claudeDetected == false { return "未检测到 Claude Code，请安装并登录。" }
         if let error = claudeState.errorMessage { return error }
         guard let snapshot = claudeState.snapshot else {
             // [AI修改] 实时读取改为默认后，无数据时优先引导开启实时读取，桥接作为备选。
@@ -97,17 +117,23 @@ struct ProviderRow: Identifiable {
         case .unavailable: return "不可用"
         }
     }
-    // [AI修改] 只显示 Codex 时保持原外观；出现 Claude 后两行都带名称。
+    // [AI修改] 所有界面只遍历当前启用的来源，并复用同一时间标签和值。
     var rows: [ProviderRow] {
+        let mode = preferences.quotaTimeMode
+        let now = Date()
+        let enabled = preferences.providers
         var result: [ProviderRow] = []
-        if showCodex {
-            result.append(ProviderRow(id: "codex", name: "Codex", showLabel: showClaude, windows: windows, stale: stale,
-                                      updatedAt: updatedAt, status: status, source: "官方 Codex app-server"))
+        if enabled.codex {
+            let time = QuotaTimePresentation.selected(mode: mode, observed: state.snapshot?.observedAt, windows: windows, now: now)
+            result.append(ProviderRow(id: "codex", name: "Codex", showLabel: enabled.claude, windows: windows, stale: stale,
+                                      timeLabel: time.label, timeValue: time.value, timeMode: mode, status: status, source: "官方 Codex app-server"))
         }
-        if showClaude {
-            result.append(ProviderRow(id: "claude", name: "Claude", showLabel: true, windows: claudeState.snapshot?.windows ?? [],
-                                      stale: claudeStale, updatedAt: Self.clockText(claudeState.snapshot?.observedAt),
-                                      status: claudeStatus, source: claudeSourceText))
+        if enabled.claude {
+            let quota = claudeState.snapshot
+            let windows = quota?.windows ?? []
+            let time = QuotaTimePresentation.selected(mode: mode, observed: quota?.observedAt, windows: windows, now: now)
+            result.append(ProviderRow(id: "claude", name: "Claude", showLabel: true, windows: windows, stale: claudeStale,
+                                      timeLabel: time.label, timeValue: time.value, timeMode: mode, status: claudeStatus, source: claudeSourceText))
         }
         return result
     }
@@ -121,10 +147,12 @@ struct ProviderRow: Identifiable {
     func value(for window: QuotaWindow) -> String { (stale ? "≈" : "") + window.remainingText }
     func start() {
         // [AI修改] 重启设置或唤醒时取消旧代次，等旧进程清理后再发下一次读取。
-        generation += 1
+        activeRequest?.cancel()
         client?.cancel()
         stopped = false
-        timer?.invalidate()
+        timer?.invalidate(); timer = nil
+        // [AI修改] 两项均关闭时不创建刷新计时器。
+        guard hasProviders else { return }
         let interval = preferences.refreshSeconds
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             // [AI修改] 每层并发闭包独立弱捕获，避免跨执行器共享可变weak绑定。
@@ -134,33 +162,41 @@ struct ProviderRow: Identifiable {
         refresh()
     }
     func refresh() {
-        guard !stopped, !isRefreshing else { return }
+        guard canRefresh else { return }
         isRefreshing = true; clock = Date()
         let explicitPath = preferences.cliPath
         let claudeLive = preferences.claudeLive
         let lastClaude = claudeState.snapshot?.observedAt
-        let reader = CodexRPCClient(); client = reader
+        let enabled = preferences.providers
+        let request = QuotaRefreshRequest(providers: enabled)
+        activeRequest = request
+        let reader = enabled.codex ? CodexRPCClient() : nil
+        client = reader
         let claudeReader = self.claudeReader
-        let requestGeneration = generation
+        let shouldResetClaudeThrottle = enabled.claude && resetClaudeThrottle
+        if shouldResetClaudeThrottle { resetClaudeThrottle = false }
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            // [AI修改] 未安装的工具不启动进程、不读取数据；两者都没探测到时仍读取 Codex 以显示定位提示。
-            let detected = ProviderDetection.detect(codexPath: explicitPath)
+            // [AI修改] 关闭来源时不探测、不启动进程，也不进入 Claude 额度读取器。
             let result: Result<(QuotaSnapshot, String), Error>?
-            if detected.codex || !detected.claude {
+            if let reader, request.canReadCodex {
                 do {
                     let cli = try CodexLocator.resolve(explicitPath: explicitPath)
                     result = .success((try reader.read(executable: cli), cli.lastPathComponent))
                 } catch { result = .failure(error) }
             } else { result = nil }
-            let claudeOutcome: ClaudeReadOutcome = detected.claude
-                ? claudeReader.read(liveEnabled: claudeLive, now: Date(), lastObserved: lastClaude) : .unchanged
+            let claudeDetected: Bool? = request.canReadClaude ? ClaudeLocator.isInstalled() : nil
+            let claudeOutcome: ClaudeReadOutcome
+            if claudeDetected == true, request.canReadClaude {
+                if shouldResetClaudeThrottle { claudeReader.resetLiveThrottle() }
+                claudeOutcome = claudeReader.read(liveEnabled: claudeLive, now: Date(), lastObserved: lastClaude, request: request)
+            } else { claudeOutcome = .unchanged }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.client = nil; self.isRefreshing = false
+                self.client = nil; self.activeRequest = nil; self.isRefreshing = false
                 guard !self.stopped else { return }
-                guard requestGeneration == self.generation else { self.refresh(); return }
+                guard !request.isCancelled else { self.refresh(); return }
                 self.clock = Date()
-                self.codexDetected = detected.codex; self.claudeDetected = detected.claude
+                self.claudeDetected = claudeDetected
                 switch result {
                 case .some(.success(let (snapshot, name))): self.cliName = name; self.state.accept(snapshot)
                 case .some(.failure(let error)):
@@ -193,13 +229,18 @@ struct ProviderRow: Identifiable {
         return true
     }
     private func checkClaudeSetup() {
-        guard Date() < claudeSetupDeadline else { claudeSetupTimer?.invalidate(); claudeSetupTimer = nil; return }
+        guard preferences.providers.claude, Date() < claudeSetupDeadline else { claudeSetupTimer?.invalidate(); claudeSetupTimer = nil; return }
         guard ClaudeCliSetup.status() == .ready else { return }
         claudeSetupTimer?.invalidate(); claudeSetupTimer = nil
-        claudeReader.resetLiveThrottle()
+        // [AI修改] 将重置交给后台，不在主线程等待读取器锁。
+        resetClaudeThrottle = true
         preferences.claudeLive = true
         claudeDetected = true
-        refresh()
+        start()
     }
-    func stop(force: Bool = false) { generation += 1; stopped = true; timer?.invalidate(); timer = nil; client?.cancel(force: force) }
+    func stop(force: Bool = false) {
+        // [AI修改] 睡眠和退出复用取消逻辑，停用后的结果不能回写。
+        stopped = true; timer?.invalidate(); timer = nil
+        activeRequest?.cancel(); client?.cancel(force: force)
+    }
 }

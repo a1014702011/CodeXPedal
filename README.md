@@ -4,9 +4,9 @@
 
 轻量的 Codex / Claude 剩余额度桌面工具：Windows 任务栏与悬浮窗，macOS 菜单栏与横条浮窗。
 
-两个都安装时，任务栏、悬浮窗、菜单栏和横条同时显示 Codex 与 Claude 两组额度；只安装其中一个时只显示那一个。Claude Code 的安装位置自动查找，无需手动配置。
+在设置中可分别勾选「显示并获取 Codex 额度」「显示并获取 Claude 额度」，默认都开启。关闭一项后，各界面隐藏该项，后台也不再获取；只开一项时使用单行布局，两项都关则显示「没有可获取的 AI」。已勾选但未安装或未登录时可在详情查看原因。
 
-按官方响应自动显示5小时、7天窗口，不按套餐名称猜测；不显示月额度。右侧时间为最后一次有效采样的 HH:mm:ss，失败保留旧值并显示 ≈，不冒充实时数据。
+按官方响应自动显示 5 小时、7 天窗口，不按套餐名称猜测；不显示月额度。「额度时间显示」默认显示最近获取时间（HH:mm:ss），也可显示下一次真实额度重置时间。紧凑界面每家显示最早的下次重置时间，Windows 任务栏省略周期前缀，详情按周期列出；跨天带日期，无有效重置时间显示 `--`。切换时间不触发额外读取，失败保留旧值并显示 ≈。
 
 ## 下载与运行
 
@@ -26,7 +26,7 @@
 
 ### Claude 额度
 
-Claude 额度需要 Pro/Max 订阅，并在本机安装、登录 **Claude Code（命令行版）**；只装 Claude 桌面版读不到。CodeXPedal 启动时如果发现你在用 Claude 但没装或没登录 Claude Code，会询问一次：点击“安装并登录”后打开可见的终端窗口，执行官方安装脚本（Windows：`irm https://claude.ai/install.ps1 | iex`；macOS：`curl -fsSL https://claude.ai/install.sh | bash`）和 `claude auth login`，你只需在浏览器里点击“授权”；登录成功后即可显示额度。也可以在设置中随时点击“安装并登录 Claude Code”，或选择“不再提示”。本软件不会代填账号或读取密码。如果 `~/.claude/settings.json` 的 `env` 把 Claude Code 指向中转或第三方接口（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 等），且本机没有订阅登录信息，就读不到 Claude 订阅额度。
+Claude 额度需要 Pro/Max 订阅，并在本机安装、登录 **Claude Code（命令行版）**；只装 Claude 桌面版读不到。CodeXPedal 启动时如果启用了 Claude 额度、发现你在用 Claude 但没装或没登录 Claude Code，会询问一次：点击“安装并登录”后打开可见的终端窗口，执行官方安装脚本（Windows：`irm https://claude.ai/install.ps1 | iex`；macOS：`curl -fsSL https://claude.ai/install.sh | bash`）和 `claude auth login`，你只需在浏览器里点击“授权”；登录成功后即可显示额度。也可以在设置中随时点击“安装并登录 Claude Code”，或选择“不再提示”。本软件不会代填账号或读取密码。如果 `~/.claude/settings.json` 的 `env` 把 Claude Code 指向中转或第三方接口（`ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN` 等），且本机没有订阅登录信息，就读不到 Claude 订阅额度。
 
 Claude 没有像 Codex app-server 那样的官方额度命令，CodeXPedal 提供两种来源，实时读取失败时自动使用桥接数据：
 
@@ -40,7 +40,7 @@ Claude Code 查找顺序：`CODEXPEDAL_CLAUDE_PATH` → 官方原生安装（`~/
 ## 功能
 
 - 官方响应决定单/双额度；整份快照更新，不拼接不同时间或不同桶。
-- 自动识别本机安装的 Codex / Claude；两者都有时各占一行，分别显示采样时间和 ≈ 旧值标记。
+- 根据设置显示和读取各家额度；开启两项时各占一行，各自显示所选时间及 ≈ 旧值标记。
 - Windows 支持仅任务栏模式、紧凑/完整浮窗、详情与设置。
 - Mac 支持仅菜单栏模式、20–42pt横条浮窗、详情与设置。
 - 超时、断连和过期使用统一规则，所有显示入口共用同一数据真源。

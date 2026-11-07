@@ -60,7 +60,10 @@ public sealed class ClaudeOAuthUsageClient : IDisposable
 
     public async Task<ClaudeUsageResponse> ReadAsync(string configDirectory, CancellationToken cancellationToken)
     {
+        // [AI修改] 设置切换时在凭据与网络边界分别检查取消。
+        cancellationToken.ThrowIfCancellationRequested();
         var token = LoadToken(configDirectory, DateTimeOffset.UtcNow, out var tokenError);
+        cancellationToken.ThrowIfCancellationRequested();
         if (token is null)
         {
             return new(null, tokenError);
@@ -190,6 +193,8 @@ public sealed class ClaudeQuotaReader : IDisposable
 
     public async Task<ClaudeQuotaSnapshot> ReadAsync(bool liveEnabled, DateTimeOffset now, ICollection<string> diagnostics, CancellationToken cancellationToken)
     {
+        // [AI修改] 取消后不探测目录或读取后备缓存。
+        cancellationToken.ThrowIfCancellationRequested();
         var configDirectory = _configDirectory();
         var incoming = default(NativeQuotaSnapshot);
         var source = _lastSource;
@@ -201,6 +206,7 @@ public sealed class ClaudeQuotaReader : IDisposable
             {
                 _lastLiveAttempt = now;
                 var response = await _live.ReadAsync(configDirectory, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 _lastLiveError = response.Error;
                 _nextLiveAttempt = now + NormalLiveInterval;
                 if (response.RateLimited)
@@ -223,6 +229,7 @@ public sealed class ClaudeQuotaReader : IDisposable
         }
 
         // [AI修改] 未开启实时或实时失败时，比当前快照更新的状态栏缓存才可替换，旧缓存不能覆盖新结果。
+        cancellationToken.ThrowIfCancellationRequested();
         if (incoming.AbiVersion != 1
             && ClaudeStatusLineCache.TryRead(configDirectory, out var json, out var modifiedAt)
             && modifiedAt.ToUnixTimeMilliseconds() / 1000D > _last.ObservedAt)

@@ -30,11 +30,11 @@
                            Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </StackPanel>
             <TextBlock Grid.Column="1" Text="{Binding RefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="16" VerticalAlignment="Center"
-                       Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                       Visibility="{Binding ShowCodexObservedTime, Converter={StaticResource BooleanToVisibilityConverter}}" />
         </Grid>
 
         <!-- [AI修改] 折叠 5 小时卡片后自动重新等分，始终保留两项本地 Token 数据，避免双布局遗漏字段。 -->
-        <!-- [AI修改] Codex 分组：未安装 Codex 且已安装 Claude 时整体隐藏；两家同时显示时加 Codex 标题，与下方 Claude 分组对称。 -->
+        <!-- [AI修改] Codex 分组：关闭后整体隐藏；两家同时显示时加 Codex 标题，与下方 Claude 分组对称。 -->
         <StackPanel Grid.Row="1" Margin="0,24,0,0"
                     Visibility="{Binding ShowCodex, Converter={StaticResource BooleanToVisibilityConverter}}">
         <TextBlock Text="Codex" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"
@@ -42,10 +42,22 @@
         <UniformGrid Rows="1">
             <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0"
                     Visibility="{Binding HasFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <StackPanel><TextBlock Text="5 小时剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding FiveHourQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
+                <StackPanel>
+                        <TextBlock Text="5 小时剩余" Foreground="{StaticResource SecondaryTextBrush}" />
+                        <TextBlock Text="{Binding FiveHourQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" />
+                        <!-- [AI修改] 详情显示本周期的重置时间。 -->
+                        <TextBlock Text="{Binding CodexRow.FiveHourReset, StringFormat='重置：{0}'}" TextWrapping="Wrap" FontSize="11"
+                                   Visibility="{Binding ShowResetTimes, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
             </Border>
             <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0">
-                <StackPanel><TextBlock Text="7 天剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding SevenDayQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
+                <StackPanel>
+                        <TextBlock Text="7 天剩余" Foreground="{StaticResource SecondaryTextBrush}" />
+                        <TextBlock Text="{Binding SevenDayQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" />
+                        <!-- [AI修改] 详情显示本周期的重置时间。 -->
+                        <TextBlock Text="{Binding CodexRow.SevenDayReset, StringFormat='重置：{0}'}" TextWrapping="Wrap" FontSize="11"
+                                   Visibility="{Binding ShowResetTimes, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
             </Border>
             <Border Background="{StaticResource CardBrush}" Padding="15">
                 <StackPanel><TextBlock Text="今日 Token" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding TodayTokens}" FontSize="24" /></StackPanel>
@@ -67,7 +79,7 @@
             <StackPanel Grid.Column="3"><TextBlock Text="待处理任务" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding PendingTasks}" FontSize="18" /></StackPanel>
         </Grid>
 
-        <!-- [AI修改] Claude 分组：只在本机安装 Claude 时显示，额度来源与采样时间独立于 Codex。 -->
+        <!-- [AI修改] Claude 分组：只在启用时显示，额度来源与采样时间独立于 Codex。 -->
         <StackPanel Grid.Row="3" Margin="0,24,0,0"
                     Visibility="{Binding ShowClaude, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid>
@@ -79,15 +91,28 @@
                     <TextBlock Text="Claude" FontSize="16" FontWeight="SemiBold" />
                     <TextBlock Text="{Binding ClaudeQuotaSourceLabel}" Margin="0,4,0,0" Foreground="{StaticResource SecondaryTextBrush}" FontSize="12" />
                 </StackPanel>
-                <TextBlock Grid.Column="1" Text="{Binding ClaudeRefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="16" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{Binding ClaudeRefreshedAt}" FontFamily="Cascadia Mono, Consolas" FontSize="16" VerticalAlignment="Center"
+                           Visibility="{Binding ShowObservedTimes, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </Grid>
             <UniformGrid Margin="0,12,0,0" Rows="1">
                 <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0"
                         Visibility="{Binding HasClaudeFiveHourQuota, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <StackPanel><TextBlock Text="5 小时剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding ClaudeFiveHourQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="5 小时剩余" Foreground="{StaticResource SecondaryTextBrush}" />
+                        <TextBlock Text="{Binding ClaudeFiveHourQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" />
+                        <!-- [AI修改] 详情显示本周期的重置时间。 -->
+                        <TextBlock Text="{Binding ClaudeRow.FiveHourReset, StringFormat='重置：{0}'}" TextWrapping="Wrap" FontSize="11"
+                                   Visibility="{Binding ShowResetTimes, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
                 </Border>
                 <Border Background="{StaticResource CardBrush}" Padding="15" Margin="0,0,8,0">
-                    <StackPanel><TextBlock Text="7 天剩余" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding ClaudeSevenDayQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" /></StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="7 天剩余" Foreground="{StaticResource SecondaryTextBrush}" />
+                        <TextBlock Text="{Binding ClaudeSevenDayQuota}" FontSize="26" Foreground="{StaticResource AccentBrush}" />
+                        <!-- [AI修改] 详情显示本周期的重置时间。 -->
+                        <TextBlock Text="{Binding ClaudeRow.SevenDayReset, StringFormat='重置：{0}'}" TextWrapping="Wrap" FontSize="11"
+                                   Visibility="{Binding ShowResetTimes, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
                 </Border>
                 <Border Background="{StaticResource CardBrush}" Padding="15">
                     <StackPanel><TextBlock Text="今日 Token" Foreground="{StaticResource SecondaryTextBrush}" /><TextBlock Text="{Binding ClaudeTodayTokens}" FontSize="24" /></StackPanel>

@@ -69,16 +69,21 @@ public enum ClaudeStatusLineHook {
 public struct ClaudeLiveUsageClient: Sendable {
     public typealias Fetch = @Sendable (_ token: String) throws -> Data
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    private let fetch: Fetch
+    private let fetch: Fetch?
     private let tokenProvider: @Sendable (_ configDirectory: URL, _ now: Date) throws -> String
 
     public init(fetch: Fetch? = nil, tokenProvider: (@Sendable (URL, Date) throws -> String)? = nil) {
-        self.fetch = fetch ?? ClaudeLiveUsageClient.urlSessionFetch
+        self.fetch = fetch
         self.tokenProvider = tokenProvider ?? { try ClaudeLiveUsageClient.loadToken(configDirectory: $0, now: $1) }
     }
 
-    public func read(configDirectory: URL, now: Date) throws -> Data {
-        try fetch(try tokenProvider(configDirectory, now))
+    // [AI修改] 钥匙串授权可能阻塞，返回后再次检查才发起请求。
+    public func read(configDirectory: URL, now: Date, request: QuotaRefreshRequest? = nil) throws -> Data {
+        if request?.canReadClaude == false { throw QuotaReadError.cancelled }
+        let token = try tokenProvider(configDirectory, now)
+        if request?.canReadClaude == false { throw QuotaReadError.cancelled }
+        if let fetch { return try fetch(token) }
+        return try Self.urlSessionFetch(token: token, refreshRequest: request)
     }
 
     // [AI修改] 环境变量优先，其次 macOS 钥匙串「Claude Code-credentials」（系统会询问授权），最后兼容 .credentials.json。
@@ -113,7 +118,8 @@ public struct ClaudeLiveUsageClient: Sendable {
         return token
     }
 
-    static let urlSessionFetch: Fetch = { token in
+    // [AI修改] 网络任务绑定到本轮请求；关闭后不发起新请求，已发出的也会被取消。
+    static func urlSessionFetch(token: String, refreshRequest: QuotaRefreshRequest?) throws -> Data {
         var request = URLRequest(url: usageURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
@@ -126,7 +132,7 @@ public struct ClaudeLiveUsageClient: Sendable {
             box.set(data: data, status: http?.statusCode, failed: error != nil, retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
             semaphore.signal()
         }
-        task.resume()
+        if let refreshRequest { try refreshRequest.startClaudeNetwork(task) } else { task.resume() }
         // [AI修改] 等待有上限；超时取消请求，不留后台任务。
         if semaphore.wait(timeout: .now() + 20) == .timedOut { task.cancel(); throw QuotaReadError.claudeNetwork }
         let (data, status, failed, retryAfter) = box.get()
@@ -206,8 +212,10 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
         lock.lock(); lastLiveAttempt = nil; nextLiveAttempt = nil; rateLimitStreak = 0; lastLiveError = nil; liveDenied = false; lock.unlock()
     }
 
-    public func read(liveEnabled: Bool, now: Date, lastObserved: Date?) -> ClaudeReadOutcome {
+    public func read(liveEnabled: Bool, now: Date, lastObserved: Date?, request: QuotaRefreshRequest? = nil) -> ClaudeReadOutcome {
         lock.lock(); defer { lock.unlock() }
+        // [AI修改] 已关闭时不触碰凭据、网络和缓存。
+        guard request?.canReadClaude != false else { return .unchanged }
         let directory = configDirectory()
         // [AI修改] 钥匙串被拒绝后暂停到下次启动或用户关闭实时读取，期间继续接受状态栏桥接数据。
         if !liveEnabled { liveDenied = false }
@@ -215,26 +223,31 @@ public final class ClaudeQuotaReader: @unchecked Sendable {
             // [AI修改] 时钟回拨（上次请求时间晚于现在）时立即允许请求，避免永久卡住。
             let due = nextLiveAttempt.map { now >= $0 } ?? true
             if due || (lastLiveAttempt.map { $0 > now } ?? false) {
-                lastLiveAttempt = now
-                nextLiveAttempt = now.addingTimeInterval(Self.normalLiveInterval)
                 do {
-                    let snapshot = try RateLimitParser.parseClaude(try live.read(configDirectory: directory, now: now), observedAt: now)
+                    let data = try live.read(configDirectory: directory, now: now, request: request)
+                    guard request?.canReadClaude != false else { return .unchanged }
+                    let snapshot = try RateLimitParser.parseClaude(data, observedAt: now)
+                    // [AI修改] 只为真正完成的尝试记入节流，取消不拖延重新启用。
+                    lastLiveAttempt = now; nextLiveAttempt = now.addingTimeInterval(Self.normalLiveInterval)
                     lastLiveError = nil
                     rateLimitStreak = 0
                     return .updated(snapshot, .live)
                 } catch let limited as ClaudeRateLimitedError {
                     // [AI修改] 限流时按服务器建议或逐级翻倍退避，提示写明自动重试时间，恢复前一直保留该提示。
-                    rateLimitStreak += 1
+                    lastLiveAttempt = now; rateLimitStreak += 1
                     let retryAt = now.addingTimeInterval(Self.rateLimitDelay(streak: rateLimitStreak, retryAfter: limited.retryAfter))
                     nextLiveAttempt = retryAt
                     let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_GB"); formatter.dateFormat = "HH:mm:ss"
                     lastLiveError = "Claude 额度接口限流中，\(formatter.string(from: retryAt)) 后自动重试。"
                 } catch {
+                    guard request?.canReadClaude != false else { return .unchanged }
+                    lastLiveAttempt = now; nextLiveAttempt = now.addingTimeInterval(Self.normalLiveInterval)
                     lastLiveError = (error as? QuotaReadError)?.localizedDescription ?? "Claude 额度读取失败。"
                     if case QuotaReadError.claudeKeychainDenied = error { liveDenied = true }
                 }
             }
         }
+        guard request?.canReadClaude != false else { return .unchanged }
         if let cached = ClaudeStatusLineCache.read(configDirectory: directory),
            cached.1 > (lastObserved ?? .distantPast),
            let snapshot = try? RateLimitParser.parseClaude(cached.0, observedAt: cached.1) {

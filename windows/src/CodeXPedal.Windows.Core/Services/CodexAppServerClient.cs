@@ -62,6 +62,14 @@ public sealed class CodexAppServerClient : IDisposable
         }
     }
 
+    // [AI修改] 设置关闭时串行回收自有 app-server，不干扰其他 Codex 实例。
+    public async Task StopSessionAsync()
+    {
+        await _requestGate.WaitAsync().ConfigureAwait(false);
+        try { if (!_disposed) { ResetProcess(); } }
+        finally { _requestGate.Release(); }
+    }
+
     public void Dispose()
     {
         _disposed = true;

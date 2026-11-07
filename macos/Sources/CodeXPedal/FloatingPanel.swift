@@ -28,7 +28,7 @@ private extension View {
     let openDetails: () -> Void
     var onLayoutChange: () -> Void = {}
     private let quotaColor = Color(red: 0.34, green: 0.84, blue: 0.71)
-    // [AI修改] 两者都安装时上下两行、每行带名称且字号按 0.8 缩放，保持横条高度可控；只装一个时与原横条一致。
+    // [AI修改] 两项都启用时上下两行；单项使用完整字号，空态不用空白行。
     private func rowView(_ row: ProviderRow, size: Double) -> some View {
         HStack(spacing: 14) {
             if row.showLabel {
@@ -49,13 +49,16 @@ private extension View {
             }
             Spacer(minLength: 0)
             Rectangle().fill(.white.opacity(0.3)).frame(width: 1, height: size)
-            Text(row.updatedAt).font(.system(size: size * 0.72, weight: .medium, design: .monospaced)).foregroundStyle(.white).singleLine()
+            // [AI修改] 重置模式包含周期及可能的日期，时间列适度减小字号。
+            Text(row.stripTime).font(.system(size: size * (row.timeMode == .nextReset ? 0.60 : 0.72), weight: .medium, design: .monospaced))
+                .foregroundStyle(.white).singleLine()
         }
     }
     var body: some View {
         let rows = store.rows
         let size = rows.count > 1 ? max(20, preferences.fontSize * 0.8) : preferences.fontSize
         VStack(alignment: .leading, spacing: 8) {
+            if rows.isEmpty { Text(QuotaTimePresentation.empty).font(.system(size: size * 0.72)).foregroundStyle(.white).singleLine() }
             ForEach(rows) { row in rowView(row, size: size) }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
@@ -65,9 +68,9 @@ private extension View {
         .fixedSize()
         .background(GeometryReader { proxy in Color.clear.preference(key: StripSizeKey.self, value: proxy.size) })
         .onPreferenceChange(StripSizeKey.self) { _ in onLayoutChange() }
-        .help(store.rows.map { "\($0.name)：\($0.status)，最近成功读取 \($0.updatedAt)" }.joined(separator: "\n") + "\n双击查看详情，拖动调整位置。")
+        .help((rows.isEmpty ? QuotaTimePresentation.empty : rows.map { "\($0.name)：\($0.status)，\($0.timeLabel) \($0.timeValue)" }.joined(separator: "\n")) + "\n双击查看详情，拖动调整位置。")
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("剩余额度，" + store.rows.map { "\($0.name)\($0.status)，最近成功读取\($0.updatedAt)" }.joined(separator: "；"))
+        .accessibilityLabel(rows.isEmpty ? QuotaTimePresentation.empty : rows.map { "\($0.name)\($0.status)，\($0.timeLabel) \($0.timeValue)" }.joined(separator: "；"))
     }
 }
 

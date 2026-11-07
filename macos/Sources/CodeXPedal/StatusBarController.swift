@@ -25,12 +25,15 @@ import CodeXPedalCore
     }
     func update() {
         let rows = store.rows
-        let text = rows.map { title(for: $0) }.joined(separator: "  ")
+        // [AI修改] 单项只占实际宽度；两项关闭时保留可打开菜单的空态入口。
+        let text = rows.isEmpty ? QuotaTimePresentation.empty : rows.map { "\(title(for: $0)) · \($0.stripTime)" }.joined(separator: "  ")
         // [AI修改] 删除按“≈100%”预留宽度的逻辑，避免空白浪费；保持 variableLength 贴合实际文字，等宽数字保证同位数刷新不抖动。
         let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.labelColor]
         item.button?.attributedTitle = NSAttributedString(string: text, attributes: attributes)
         let order = rows.count > 1 ? "\n斜杠前为5小时、后为7天剩余" : ""
-        item.button?.toolTip = rows.map { "\($0.name)：\($0.status)，最近成功读取 \($0.updatedAt)" }.joined(separator: "\n") + order
+        item.button?.toolTip = rows.isEmpty ? QuotaTimePresentation.empty : rows.map {
+            "\($0.name)：\($0.status)，\($0.timeLabel) \($0.timeValue)"
+        }.joined(separator: "\n") + order
         item.button?.setAccessibilityLabel("CodeXPedal 剩余额度，\(text)")
         rebuildMenu()
     }
@@ -38,21 +41,22 @@ import CodeXPedalCore
     private func rebuildMenu() {
         menu.removeAllItems()
         addText("CodeXPedal · 剩余额度", bold: true)
-        // [AI修改] 每个已安装工具一段：名称、各窗口剩余与重置时间、最近成功时间和状态。
+        // [AI修改] 只展示已启用的分组；重置模式在菜单中也按周期显示。
+        if !store.hasProviders { addText(QuotaTimePresentation.empty) }
         for row in store.rows {
             menu.addItem(.separator())
             if row.showLabel { addText(row.name, bold: true) }
             if row.windows.isEmpty { addText("暂无可显示额度") }
             for window in row.windows {
                 addText("\(window.kind.label)    \(row.value(for: window))")
-                if let reset = window.resetsAt { addText("重置：\(reset.formatted(date: .abbreviated, time: .shortened))") }
+                if row.timeMode == .nextReset { addText("重置：\(QuotaTimePresentation.reset(window.resetsAt, now: Date()))") }
             }
-            addText("最近成功：\(row.updatedAt)")
+            if row.timeMode == .observed || row.windows.isEmpty { addText("\(row.timeLabel)：\(row.timeValue)") }
             addText(row.status)
         }
         menu.addItem(.separator())
         let refresh = addAction(store.isRefreshing ? "正在刷新…" : "立即刷新", #selector(refreshNow), "r")
-        refresh.isEnabled = !store.isRefreshing
+        refresh.isEnabled = store.canRefresh
         let visibility = addAction("只显示菜单栏", #selector(toggleFloating))
         visibility.state = preferences.menuOnly ? .on : .off
         addAction("额度详情…", #selector(showDetails), "d")

@@ -1,8 +1,19 @@
 // [AI修改] 集中保存 Windows 界面配置，默认不占用任务栏空间。
 namespace CodeXPedal.Windows.Core.Models;
 
+// [AI修改] 额度时间仅影响显示，不改变采样和定时读取。
+public enum QuotaTimeMode { Observed, NextReset }
+
 public sealed record AppSettings
 {
+    // [AI修改] 旧配置缺少字段时继续默认启用；显式 false 始终保留。
+    public bool CodexEnabled { get; init; } = true;
+    public bool ClaudeEnabled { get; init; } = true;
+    public QuotaTimeMode QuotaTimeMode { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasEnabledProvider => CodexEnabled || ClaudeEnabled;
+
     public bool CompactMode { get; init; }
 
     public bool AlwaysOnTop { get; init; } = true;
@@ -29,6 +40,8 @@ public sealed record AppSettings
     // [AI修改] 归一化刷新范围，并避免仅任务栏模式被手工配置成没有可见入口。
     public AppSettings Normalize() => this with
     {
+        // [AI修改] 损坏的时间模式回到最近获取时间。
+        QuotaTimeMode = QuotaTimeMode == QuotaTimeMode.NextReset ? QuotaTimeMode.NextReset : QuotaTimeMode.Observed,
         ShowTaskbarStrip = TaskbarOnlyMode || ShowTaskbarStrip,
         RefreshIntervalSeconds = Math.Clamp(RefreshIntervalSeconds, 15, 3600),
     };

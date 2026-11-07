@@ -22,6 +22,29 @@ final class ClaudeTests: XCTestCase {
         return url
     }
 
+    // [AI修改] 实际读取器验证关闭不会读凭据或缓存，授权期间取消也不会发网络请求。
+    func testProviderOffAndCancelledDuringCredentialLoadSkipReads() throws {
+        _ = try write(#"{"rate_limits":{"five_hour":{"used_percentage":20}}}"#, ClaudeStatusLineCache.fileName)
+        let directory = self.directory!
+        let credentials = Counter(), network = Counter()
+        let request = QuotaRefreshRequest(providers: QuotaProviders(codex: false, claude: true))
+        let reader = ClaudeQuotaReader(live: ClaudeLiveUsageClient(fetch: { _ in
+            network.increment(); return Data()
+        }, tokenProvider: { _, _ in
+            credentials.increment(); request.cancel(); return "fixture"
+        }), configDirectory: { directory })
+        let off = QuotaRefreshRequest(providers: QuotaProviders(codex: true, claude: false))
+        guard case .unchanged = reader.read(liveEnabled: true, now: Date(), lastObserved: nil, request: off) else {
+            return XCTFail("关闭 Claude 后不应返回缓存")
+        }
+        XCTAssertEqual(credentials.value, 0)
+        guard case .unchanged = reader.read(liveEnabled: true, now: Date(), lastObserved: nil, request: request) else {
+            return XCTFail("取消后不应继续读取")
+        }
+        XCTAssertEqual(credentials.value, 1)
+        XCTAssertEqual(network.value, 0)
+    }
+
     func testClaudeStatusLineUsesSharedCore() throws {
         let json = #"{"rate_limits":{"seven_day":{"used_percentage":41.2,"resets_at":1738857600},"five_hour":{"used_percentage":23.5}}}"#
         let snapshot = try RateLimitParser.parseClaude(Data(json.utf8))

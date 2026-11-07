@@ -8,8 +8,9 @@
 - 正式需求：实际300/10080分钟窗口决定显示，不猜订阅；无月额度。整份更新、失败保留原值/原时间，所有入口共用陈旧标记。
 - 不读取CLI凭据、不自动登录/安装、不上传账户和用量、不恢复旧仪表盘或旧资源。例外（用户已确认）：Claude“实时读取”默认开启，用户可在设置中关闭，关闭后保持关闭；只读Claude登录令牌并仅发往Anthropic官方usage接口，不保存、不刷新令牌；macOS拒绝钥匙串授权后暂停，不重复弹窗。
 - Claude Code安装/登录（用户已确认）：检测到在用Claude但未装/未登录时启动询问一次，用户点击后在可见终端执行官方安装脚本与claude auth login，浏览器授权由用户完成；登录成功后自动开启Claude实时读取。不得静默安装、不得代填账号。
-- Claude：默认用实时读取；状态栏桥接读取官方statusLine rate_limits作为备选，设置页须写明使用步骤；只在用户点击时修改~/.claude/settings.json并备份原statusLine。两家都装才同时显示，只装一个只显示一个。
-- Windows保留仅任务栏模式；Mac横条只显示额度和右侧HH:mm:ss，20–42pt，支持仅菜单栏。无新视觉方向调整。
+- Claude：默认用实时读取；状态栏桥接读取官方statusLine rate_limits作为备选，设置页须写明使用步骤；只在用户点击时修改~/.claude/settings.json并备份原statusLine。
+- Codex/Claude 独立勾选，缺省双开；关闭来源既不展示也不获取。双关显示「没有可获取的 AI」，保留设置入口。
+- Windows保留仅任务栏模式；Mac横条20–42pt，支持仅菜单栏。默认显示最近获取时间（HH:mm:ss），可改成带周期的下次额度重置时间。
 - 测试：cargo test --manifest-path shared/Cargo.toml --locked；Windows scripts/build.ps1；Mac make test / make build / make verify。测试调用真实共享库。
 - 内存/生命周期：输出、缓存、遍历、等待必须有界；报告整个生产目录风险清单，静态检查不能代替运行或安全审计。
 - 同步README中英、核心、测试、分发和发布说明。Windows本机临时输出F盘；CI/Mac使用独立构建目录。不得提交账户、个人路径、运行日志。

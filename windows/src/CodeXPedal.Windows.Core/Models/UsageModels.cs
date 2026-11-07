@@ -70,7 +70,10 @@ public sealed record UsageSnapshot(
 {
     // [AI修改] 失败与来源分别记录，旧官方快照不能被重新标为实时。
     public bool QuotaReadFailed { get; init; }
-    // [AI修改] Claude 额度和两家工具的安装探测结果；未探测到时界面不显示对应分组。
+    // [AI修改] 两家诊断分开保存，取消显示时不用等待新快照就能隐藏对应诊断。
+    public IReadOnlyList<string> CodexDiagnostics { get; init; } = [];
+    public IReadOnlyList<string> ClaudeDiagnostics { get; init; } = [];
+    // [AI修改] 安装探测只影响数据可用性，界面可见性由设置决定。
     public ClaudeQuotaSnapshot ClaudeQuota { get; init; } = ClaudeQuotaSnapshot.Empty;
     public bool CodexDetected { get; init; } = true;
     public bool ClaudeDetected { get; init; }

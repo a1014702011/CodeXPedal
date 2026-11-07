@@ -5,10 +5,13 @@ import CodeXPedalCore
 
 @MainActor struct DetailsView: View {
     @ObservedObject var store: QuotaStore
+    // [AI修改] 时间偏好变化立即重绘详情，不触发后台读取。
+    @ObservedObject var preferences: Preferences
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("额度详情").font(.title2.bold())
-            // [AI修改] 每个已安装工具一节，来源、采样时间和状态各自独立。
+            // [AI修改] 只展示启用项；两家都关闭时仍保留详情和设置入口。
+            if !preferences.providers.hasEnabled { Text(QuotaTimePresentation.empty).foregroundStyle(.secondary) }
             ForEach(store.rows) { row in
                 if row.showLabel { Text(row.name).font(.headline) }
                 if row.windows.isEmpty { Text("暂无可显示额度").foregroundStyle(.secondary) }
@@ -16,12 +19,14 @@ import CodeXPedalCore
                     VStack(alignment: .leading, spacing: 6) {
                         HStack { Text(window.kind.label); Spacer(); Text(row.value(for: window)).font(.title2.monospacedDigit().bold()) }
                         ProgressView(value: window.remainingPercent, total: 100)
-                        if let reset = window.resetsAt {
-                            Text("重置时间：\(reset.formatted(date: .abbreviated, time: .standard))").font(.caption).foregroundStyle(.secondary)
-                        } else { Text("官方未提供重置时间").font(.caption).foregroundStyle(.secondary) }
+                        if row.timeMode == .nextReset {
+                            Text("重置时间：\(QuotaTimePresentation.reset(window.resetsAt, now: Date()))").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                LabeledContent("最近成功读取", value: row.updatedAt)
+                if row.timeMode == .observed || row.windows.isEmpty {
+                    LabeledContent(row.timeLabel, value: row.timeValue)
+                }
                 LabeledContent("额度来源", value: row.source)
                 if row.id == "codex" { LabeledContent("CLI", value: store.cliName) }
                 Text(row.status).font(.callout).foregroundStyle(row.stale ? Color.orange : Color.secondary).textSelection(.enabled)
@@ -29,7 +34,7 @@ import CodeXPedalCore
             }
             Text("≈ 表示旧快照，不代表当前实时额度。百分比始终表示剩余。\n本工具不读取会话正文，不上传账户和用量。")
                 .font(.caption).foregroundStyle(.secondary)
-            Button(store.isRefreshing ? "正在刷新…" : "立即刷新") { store.refresh() }.disabled(store.isRefreshing)
+            Button(store.isRefreshing ? "正在刷新…" : "立即刷新") { store.refresh() }.disabled(!store.canRefresh)
         }.padding(24).frame(width: 430).fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -61,8 +66,22 @@ import CodeXPedalCore
         }
     }
     var body: some View {
+        // [AI修改] 增加设置后允许滚动，小屏幕不裁切操作按钮。
+        ScrollView {
         VStack(alignment: .leading, spacing: 18) {
             Text("显示与连接").font(.title2.bold())
+            // [AI修改] 独立控制每家额度，并解释时间样式不会改变刷新间隔。
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("显示并获取 Codex 额度", isOn: $preferences.providers.codex)
+                Text("取消后不显示 Codex 额度，也不在后台获取。").font(.caption).foregroundStyle(.secondary)
+                Toggle("显示并获取 Claude 额度", isOn: $preferences.providers.claude)
+                Text("取消后不显示 Claude 额度，也不在后台获取。").font(.caption).foregroundStyle(.secondary)
+                Picker("额度时间显示", selection: $preferences.quotaTimeMode) {
+                    Text("最近获取时间").tag(QuotaTimeMode.observed)
+                    Text("下次额度重置时间").tag(QuotaTimeMode.nextReset)
+                }
+                Text("重置时间由额度来源提供，不是软件下一次查询的时间。").font(.caption).foregroundStyle(.secondary)
+            }
             Toggle("只显示菜单栏，不显示浮窗", isOn: $preferences.menuOnly)
             VStack(alignment: .leading) {
                 HStack { Text("浮窗字号"); Spacer(); Text("\(Int(preferences.fontSize)) pt").monospacedDigit() }
@@ -84,10 +103,11 @@ import CodeXPedalCore
                 Divider()
                 Text("Claude 额度").font(.headline)
                 HStack {
-                    Button(cliText.button) { if startClaudeSetup() { setupStarted = true } }.disabled(cliStatus == .ready)
+                    Button(cliText.button) { if startClaudeSetup() { setupStarted = true } }.disabled(!preferences.providers.claude || cliStatus == .ready)
                     Text(cliText.status).font(.caption).foregroundStyle(.secondary)
                 }
                 Toggle("实时读取 Claude 额度（默认，读取钥匙串中的 Claude 登录令牌）", isOn: $preferences.claudeLive)
+                    .disabled(!preferences.providers.claude)
                 Text("首次读取时系统会询问是否允许访问「Claude Code-credentials」；约每 2 分钟一次（被限流时自动退避）发送到 Anthropic 官方接口，不保存、不上传到其他地方。令牌过期时请打开一次 Claude Code。")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Text("备选方式：Claude 状态栏桥接").font(.subheadline.weight(.semibold)).padding(.top, 4)
@@ -99,10 +119,15 @@ import CodeXPedalCore
                 }
             }
             HStack { Spacer(); Button("应用并刷新", action: apply).keyboardShortcut(.defaultAction) }
-        }.padding(24).frame(width: 470).fixedSize(horizontal: false, vertical: true)
+        }.padding(24)
+        }.frame(width: 490, height: min(700, (NSScreen.main?.visibleFrame.height ?? 760) - 60))
         .onAppear {
             bridgeState = ClaudeStatusLineBridge.state(configDirectory: ClaudeLocator.configDirectory(), executable: executable)
-            cliStatus = ClaudeCliSetup.status()
+            if preferences.providers.claude { cliStatus = ClaudeCliSetup.status() }
+        }
+        .onChange(of: preferences.providers.claude) { enabled in
+            if enabled { cliStatus = ClaudeCliSetup.status() }
+            else { setupStarted = false }
         }
     }
     // [AI修改] 替换用户自定义状态栏前必须明确确认；失败时提示原因且不做部分修改。
@@ -139,7 +164,7 @@ import CodeXPedalCore
     private let preferences: Preferences
     init(store: QuotaStore, preferences: Preferences) { self.store = store; self.preferences = preferences }
     func showDetails() {
-        if details == nil { details = makeWindow("CodeXPedal · 额度详情", view: DetailsView(store: store)) }
+        if details == nil { details = makeWindow("CodeXPedal · 额度详情", view: DetailsView(store: store, preferences: preferences)) }
         show(details)
     }
     func showSettings() {

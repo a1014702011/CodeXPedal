@@ -9,12 +9,18 @@ public sealed class SettingsStore
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
+        // [AI修改] 初次保存时窗口可能还没有坐标，允许保留 NaN，避免同时丢失额度偏好。
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals,
     };
 
-    public string SettingsPath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "CodeXPedal",
-        "settings.json");
+    // [AI修改] 快速保存与窗口定位写入串行，避免抢占同一个原子替换临时文件。
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
+
+    // [AI修改] 测试使用隔离文件验证旧配置和原子保存，不接触真实用户设置。
+    public SettingsStore() : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "CodeXPedal", "settings.json")) { }
+    internal SettingsStore(string settingsPath) => SettingsPath = settingsPath;
+    public string SettingsPath { get; }
 
     public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken = default)
     {
@@ -38,14 +44,20 @@ public sealed class SettingsStore
 
     public async Task SaveAsync(AppSettings settings, CancellationToken cancellationToken = default)
     {
-        var directory = Path.GetDirectoryName(SettingsPath)!;
-        Directory.CreateDirectory(directory);
-        var temporaryPath = SettingsPath + ".tmp";
-        await using (var stream = File.Create(temporaryPath))
+        // [AI修改] 串行完成写入，确保两个开关和时间模式落入同一份配置。
+        await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, settings.Normalize(), JsonOptions, cancellationToken).ConfigureAwait(false);
-        }
+            var directory = Path.GetDirectoryName(SettingsPath)!;
+            Directory.CreateDirectory(directory);
+            var temporaryPath = SettingsPath + ".tmp";
+            await using (var stream = File.Create(temporaryPath))
+            {
+                await JsonSerializer.SerializeAsync(stream, settings.Normalize(), JsonOptions, cancellationToken).ConfigureAwait(false);
+            }
 
-        File.Move(temporaryPath, SettingsPath, overwrite: true);
+            File.Move(temporaryPath, SettingsPath, overwrite: true);
+        }
+        finally { _saveGate.Release(); }
     }
 }

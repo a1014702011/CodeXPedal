@@ -26,11 +26,13 @@ import Darwin
         NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
         store.start()
         // [AI修改] 在用 Claude（有配置目录或桌面版）但 Claude Code 未安装/未登录时，启动后询问一次。
-        if store.claudeDetected, !preferences.claudeSetupDismissed {
+        if preferences.providers.claude, !preferences.claudeSetupDismissed, ClaudeLocator.isInstalled() {
             DispatchQueue.main.async { [weak self] in self?.promptClaudeSetup() }
         }
     }
     private func promptClaudeSetup() {
+        // [AI修改] 启动排队期间关闭 Claude 后不再询问安装或登录。
+        guard preferences.providers.claude, !terminating else { return }
         let status = ClaudeCliSetup.status()
         guard status != .ready, !terminating else { return }
         let installed = status == .notLoggedIn
@@ -88,6 +90,8 @@ import Darwin
         let flags = CommandLine.arguments.dropFirst().filter { $0.hasPrefix("--") }
         // [AI修改] 作为 Claude Code statusLine 命令被调用：读一次 stdin、写缓存、输出一行文字后立即退出，不启动界面。
         if flags.first == ClaudeStatusLineHook.argument {
+            // [AI修改] 停用后保留外部桥接配置，但不读取输入或改写缓存。
+            guard Preferences().providers.claude else { print("CodeXPedal：已关闭 Claude 额度"); return }
             let input = (try? FileHandle.standardInput.read(upToCount: 1_048_577)) ?? Data()
             let text = ClaudeStatusLineHook.run(input: input, configDirectory: ClaudeLocator.configDirectory())
             FileHandle.standardOutput.write(Data(text.utf8))

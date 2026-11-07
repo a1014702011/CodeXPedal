@@ -46,8 +46,18 @@ for marker in ['1_048_576', '131_072', 'Darwin.poll', 'Darwin.read', 'SIGKILL', 
 for marker in ['readDataToEndOfFile', 'readabilityHandler', 'availableData', 'waitUntilExit', 'auth.json', 'thread/start', 'turn/start']:
     require(marker not in mac_rpc, 'Mac含禁用入口：' + marker)
 store = read('macos/Sources/CodeXPedal/QuotaStore.swift')
-for marker in ['!isRefreshing', 'requestGeneration == self.generation', 'timer?.invalidate()', 'client?.cancel()', '[weak self]']:
+# [AI修改] 从旧计数代次切到可取消请求，校验门禁、取消与结果隔离同时存在。
+for marker in ['!isRefreshing', 'guard canRefresh', 'guard hasProviders', 'guard !request.isCancelled',
+               'request.canReadCodex', 'request.canReadClaude', 'timer?.invalidate()', 'client?.cancel()',
+               'activeRequest?.cancel()', '[weak self]']:
     require(marker in store, 'Mac刷新边界缺少：' + marker)
+mac_request = read('macos/Sources/CodeXPedalCore/QuotaPresentation.swift')
+require('NSLock' in mac_request and 'task?.cancel()' in mac_request and 'guard providers.claude, !cancelled' in mac_request,
+        'Mac Claude 网络任务未绑定取消门禁')
+win_refresh = read('windows/src/CodeXPedal.Windows.Core/Services/UsageSnapshotService.cs')
+require('!settings.HasEnabledProvider' in win_refresh and 'settings.ClaudeEnabled &&' in win_refresh
+        and 'settings.CodexEnabled' in win_refresh and 'ThrowIfCancellationRequested' in win_refresh,
+        'Windows 刷新缺少来源或取消门禁')
 for file in ['macos/Sources/CodeXPedalCore/RateLimitParser.swift', 'windows/src/CodeXPedal.Windows.Core/Services/RateLimitParser.cs']:
     source = read(file)
     require('SharedQuotaCore' in source and 'TryParseWindow' not in source and 'Decodable' not in source, '宿主仍有重复解析：' + file)

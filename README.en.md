@@ -4,9 +4,9 @@
 
 A lightweight Codex / Claude quota monitor with a native Windows taskbar/floating window and a native macOS menu bar/floating strip.
 
-When both are installed, the taskbar, floating window, menu bar and strip show Codex and Claude side by side; when only one is installed, only that one is shown. The Claude Code installation is discovered automatically.
+Settings has independent switches for showing and fetching Codex and Claude quotas, both enabled by default. Disabled providers are hidden and not polled. A single provider uses the full row; turning both off shows “没有可获取的 AI” (No AI providers enabled) without polling.
 
-Shows actual five-hour and seven-day windows returned by the official service, not assumptions based on plan names. No monthly quota. HH:mm:ss is the last valid observation time; ≈ denotes an old snapshot.
+Shows actual five-hour and seven-day windows, with no monthly quota. The quota time setting switches between the last valid observation (HH:mm:ss, default) and the next quota reset. Compact views show each provider’s earliest future reset; the Windows taskbar omits the period label, and Details shows each window separately. Dates appear for future days and missing times are shown as `--`. Switching the display does not trigger a fetch. ≈ marks an old snapshot.
 
 ## Download and requirements
 
@@ -26,7 +26,7 @@ Live quotas require an installed, signed-in official Codex CLI and network acces
 
 ### Claude quotas
 
-Claude quotas require a Pro/Max subscription and **Claude Code (the CLI)** installed and signed in; the Claude desktop app alone is not enough. If CodeXPedal sees that you use Claude but Claude Code is missing or signed out, it asks once at startup. “Install and sign in” opens a visible terminal that runs the official installer (Windows: `irm https://claude.ai/install.ps1 | iex`; macOS: `curl -fsSL https://claude.ai/install.sh | bash`) and `claude auth login`; you only click “Authorize” in the browser. The quota appears after sign-in. The same action is available in Settings, and “Don't ask again” suppresses the prompt. CodeXPedal never enters credentials or reads passwords. If the `env` block in `~/.claude/settings.json` points Claude Code at a relay or third-party endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and so on) and the machine has no subscription sign-in, Claude subscription quotas cannot be read.
+Claude quotas require a Pro/Max subscription and **Claude Code (the CLI)** installed and signed in; the Claude desktop app alone is not enough. If Claude quotas are enabled and CodeXPedal sees that you use Claude but Claude Code is missing or signed out, it asks once at startup. “Install and sign in” opens a visible terminal that runs the official installer (Windows: `irm https://claude.ai/install.ps1 | iex`; macOS: `curl -fsSL https://claude.ai/install.sh | bash`) and `claude auth login`; you only click “Authorize” in the browser. The quota appears after sign-in. The same action is available in Settings, and “Don't ask again” suppresses the prompt. CodeXPedal never enters credentials or reads passwords. If the `env` block in `~/.claude/settings.json` points Claude Code at a relay or third-party endpoint (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and so on) and the machine has no subscription sign-in, Claude subscription quotas cannot be read.
 
 Claude has no official quota command comparable to the Codex app-server, so CodeXPedal offers two sources. Bridge data is used automatically when live reading fails:
 
@@ -40,7 +40,7 @@ End users do not need Rust, Python, Node, .NET SDK, or Xcode. Windows local-hist
 ## Features
 
 - Window durations determine single/dual quotas; snapshots never mix times or buckets.
-- Detects installed Codex / Claude; when both exist each gets its own row with its own sample time and ≈ marker.
+- Each enabled provider gets its own row and time display; Details explains when an enabled source is unavailable.
 - Windows: taskbar-only mode, compact/full floating window, details and settings.
 - macOS: menu-bar-only mode, 20–42pt strip, details and settings.
 - Shared timeout/error/age semantics; failed reads do not change observation time.
